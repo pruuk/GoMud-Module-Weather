@@ -48,3 +48,18 @@ func FromJSON(b []byte) (*Graph, error) {
 	}
 	return &g, nil
 }
+
+// Neighbors returns the zones adjacent to z, each as an Edge oriented from z
+// (Edge.A == z, Edge.B == the neighbor). Returns nil if z has no edges.
+func (g *Graph) Neighbors(z string) []Edge {
+	var out []Edge
+	for _, e := range g.Edges {
+		switch z {
+		case e.A:
+			out = append(out, Edge{A: e.A, B: e.B, Weight: e.Weight})
+		case e.B:
+			out = append(out, Edge{A: e.B, B: e.A, Weight: e.Weight})
+		}
+	}
+	return out
+}

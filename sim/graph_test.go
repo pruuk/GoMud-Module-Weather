@@ -31,3 +31,34 @@ func TestGraphJSONRoundTrip(t *testing.T) {
 		t.Errorf("round trip mismatch:\n want %+v\n got  %+v", g, got)
 	}
 }
+
+func TestGraphNeighbors(t *testing.T) {
+	g := &Graph{
+		Edges: []Edge{
+			{A: "A", B: "B", Weight: 2},
+			{A: "B", B: "C", Weight: 1},
+		},
+	}
+
+	got := map[string]int{}
+	for _, e := range g.Neighbors("B") {
+		if e.A != "B" {
+			t.Errorf("neighbor edge should be oriented from the queried zone; got A=%q", e.A)
+		}
+		got[e.B] = e.Weight
+	}
+
+	want := map[string]int{"A": 2, "C": 1}
+	if len(got) != len(want) {
+		t.Fatalf("want %d neighbors, got %d (%v)", len(want), len(got), got)
+	}
+	for z, w := range want {
+		if got[z] != w {
+			t.Errorf("neighbor %q: want weight %d, got %d", z, w, got[z])
+		}
+	}
+
+	if n := g.Neighbors("Z"); len(n) != 0 {
+		t.Errorf("unknown zone should have no neighbors, got %v", n)
+	}
+}
