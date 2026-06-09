@@ -19,6 +19,8 @@ The headline behavior we are building toward:
 
 We achieve this without inventing a new effects system. GoMud already has **mutators** — temporary, decaying room modifications that can change descriptions, alerts, light level, PvP state, and apply buffs. The weather module is, at its core, an **orchestrator**: it decides *which weather is where*, and translates that into *which mutator is applied to which zone*. The engine does the rest.
 
+Critically, every integration point this design needs **already exists in GoMud today** — so **v1 requires no changes to the GoMud engine** (verified, §5.6). That keeps the module entirely in our ownership and off the engine maintainer's review queue, save for a one-time module-registry onboarding.
+
 ### What makes this design worth the effort
 
 - **Spatially coherent & emergent.** Weather is modeled as discrete, named **systems (fronts)** that walk a graph of the world's geography. Storms have a location and a trajectory, not just a per-room dice roll.
@@ -26,6 +28,7 @@ We achieve this without inventing a new effects system. GoMud already has **muta
 - **Zero prose in the engine.** The module sets *state*; presentation is a fully overridable data layer of emote tables keyed by `(biome, weather type, indoor/outdoor)`. A MUD's builders write their own ambiance; we ship sensible defaults.
 - **Reproducible.** The simulation core is a pure function driven by a seedable RNG, so a given seed + world produces the same weather history. Invaluable for debugging, for tests, and for the AI-tester lineage this project comes from.
 - **Portable by construction.** A ports-and-adapters split keeps all engine-specific calls in one thin file, so the same module drops into both GoMud and DOGMud.
+- **Works out of the box.** Install, set `Enabled: true`, and a stock world has believable weather immediately — no required data authoring, no world prep, default content for the standard biomes. A hard requirement, not a nicety (§2.3).
 
 ---
 
@@ -46,6 +49,8 @@ We achieve this without inventing a new effects system. GoMud already has **muta
 | **Admin/observability commands** | Inspect current weather, list active fronts, force-spawn/clear weather, rebuild the graph. |
 | **Exported API** | Other modules and JS scripts can query "what's the weather in zone X?". |
 | **Config surface** | All knobs under `Modules.weather.*` with safe defaults; degrades gracefully if optional deps are missing. |
+| **Out-of-the-box experience** | Install + one config flag → working weather on a stock world, **no data authoring required**. Default content shipped for the standard biomes. Hard requirement (§2.3). |
+| **Zero engine changes** | v1 is implemented entirely against existing GoMud APIs; no PRs to the engine are required to ship it (§5.6). |
 
 ### 2.2 Explicitly does NOT deliver (v1)
 
@@ -60,6 +65,21 @@ We achieve this without inventing a new effects system. GoMud already has **muta
 | **Astronomical/tidal systems, moon phases** | Out of scope. (DOGMud has its own moon lore; the module exposes seams but does not own it.) |
 
 The discipline here is deliberate: **YAGNI**. Everything above the line is needed to deliver the headline behavior; everything below it is either a clean v2 or a "nice someday" that the architecture leaves room for.
+
+### 2.3 Out-of-the-box experience (hard requirement)
+
+A direct lesson from the playtest harness: a module that needs hand-holding to start won't get adopted. **Installing this module and enabling it must produce working weather on a stock GoMud world with no further authoring.** This is a first-class requirement, not polish.
+
+The acceptance bar:
+
+1. **Install via the registry** — `go run . module install weather` → `go generate ./... && go build` → run.
+2. **One switch.** With `Modules.weather.Enabled: true` (the shipped default), weather is live. No other required config.
+3. **No required data authoring.** The module ships default climate profiles, weather mutators, emote tables, and buffs covering the **standard GoMud biomes** (e.g. city, forest, swamp, mountain, desert, tundra, ocean, plains, cave/underground, and `default`). A world with stock biomes gets believable weather immediately.
+4. **No world prep.** No builder must tag rooms, define regions, or edit zones. The crawler discovers geography from existing exits; missing biome data falls back to the `default` climate profile.
+5. **Graceful degradation, never a crash.** Missing optional deps, a sparse world, or a failed crawl drop features, log a warning, and keep the server healthy — mirroring the playtest module's fail-soft posture.
+6. **Clean off switch.** `Enabled: false` (or uninstall) leaves no residue: weather mutators self-heal via `DecayRate`/`DecayIntoId` (§9.2), so rooms return to calm with no manual cleanup.
+
+Tracked as explicit acceptance criteria on milestones M3–M4 (§16) and as an OOBE smoke test (§14).
 
 ---
 
@@ -214,6 +234,42 @@ These are the concrete APIs the `engine/` adapter binds to. Verified in the DOGM
 - `gametime.GetDate() GameDate` (`gametime.go:144`) → `{Day, Month, Year, Night, ...}`; `gametime.MonthName(month)` (`months.go:20`) — the **season clock** (v2) derives from `Month`.
 
 > **Divergence note:** An earlier `internal/mutators/context.md` summary described a *different* `MutatorSpec` (with `TextModifiers map`, `SpawnChance`, `Requirements`, no buffs). The **actual code** has the richer struct above. Trust source over summaries; the adapter pins us to the real API.
+
+### 5.6 GoMud core impact & module boundary
+
+**This is the most governance-sensitive part of the plan.** We own the module; Volte6 owns the GoMud engine. Anything that changes the engine requires his code review and lands on his schedule, and the *initial registry onboarding* is a one-time coordination step regardless. So the design's explicit goal is to **need zero engine changes for v1** — and the verification below says we hit that bar.
+
+#### What lives entirely in the module (we own; no external review)
+- The geography crawler, simulation core, and engine adapter (all of §6–§9).
+- All data: climate profiles, weather types, weather **mutator specs**, default **buff specs**, emote tables — shipped via the module's `files/` overlay.
+- Config, persistence, admin commands, exported API.
+
+#### What touches GoMud — classification
+
+| Capability we need | Mechanism | In GoMud today? | Verdict |
+|---|---|---|---|
+| Add/remove a mutator on a zone at runtime | `GetZoneConfig(z).Mutators.Add/Remove` | **Yes** — `admin.room.dispatcher.go:276` already calls `room.Mutators.Add` live; `admin.zone.go` manipulates zones. | No core change. |
+| Zone mutators get lifecycle/decay each round | `NewRound_UpdateZoneMutators.go` → `GetZonesWithMutators()` → `Mutators.Update(round)` | **Yes** — engine already ticks zone mutators every round. | No core change. |
+| Players see weather without re-`look` quirks | `Room.ActiveMutators` merges room+zone `GetActive()` **live** at render (`rooms.go:2562`) | **Yes** — read live each render. | No core change. |
+| Enumerate zones/rooms/biomes/exits | `GetAllZoneNames`, `GetAllZoneRoomsIds`, `GetZoneBiome`, `Room.Exits` | **Yes.** | No core change. |
+| Coarse clock + calendar date | `events.NewRound`, `events.DayNightCycle`, `gametime.GetDate` | **Yes.** | No core change. |
+| Mutator carries buffs / light / chain / decay | `MutatorSpec.{PlayerBuffIds,LightMod,DecayIntoId,DecayRate,RespawnRate}` | **Yes** (verified in source). | No core change. |
+| Ship mutator + buff + custom data via module | data-overlay merge (`files/datafiles/`) | **Yes** (how all modules ship data). | No core change — **verify** buff-spec overlay during M3 (R-core-1). |
+| Persist module state | `plugin.WriteBytes/ReadBytes` | **Yes.** | No core change. |
+| Expose API to other modules/JS | `plugin.ExportFunction` | **Yes.** | No core change. |
+| Registry entry (`module install weather`) | registry listing | Process, not engine code | **One-time onboarding** with maintainers (§13.3). |
+
+**Bottom line: v1 requires no changes to the GoMud engine.** The only maintainer-side step is the one-time registry onboarding.
+
+#### Verification items (could, if they surprise us, become a small upstream PR)
+- **R-core-1 — buff-spec overlay merge.** Confirm a module can ship `BuffSpec`s via `files/datafiles/` and have them register in the global buff table at load (mutators ship this way; buffs are expected to as well). Fallbacks in priority order: **(a)** map default weather effects onto *existing* engine buff ids and ship only mutators (no core change); **(b)** propose a tiny, backward-compatible upstream change to include module buff overlays. We design so **(a) is always viable**, so this can never block shipping.
+- **R-core-2 — runtime room refresh.** Confirm that when weather changes for a room a player occupies, the next render reflects it acceptably (evidence: live merge at render says yes). If a *push* refresh is ever wanted, emit an existing event rather than change the engine.
+
+#### Optional upstream contributions (explicitly NOT v1 requirements)
+Ideas we might *offer* the maintainer later as additive, backward-compatible engine niceties — never blockers, all decoupled behind the `engine/` adapter so adopting one is a local swap:
+- A first-class `WeatherChanged` event in `internal/events` (until then: a module-defined event + `ExportFunction`).
+- Climate fields on `BiomeInfo` so biomes can *suggest* weather natively (we keep climate as module data regardless).
+- A weather GMCP package in the `gmcp` module (a module-to-module contribution, not an engine change).
 
 ---
 
@@ -547,7 +603,7 @@ These are intentionally **not** committed; the architecture leaves room for each
 
 ---
 
-## 13. Portability — Backporting GoMud ⇄ DOGMud
+## 13. Portability, Distribution & Project Governance
 
 ### 13.1 Current state
 DOGMud is a **fork** of GoMud (same module path `github.com/GoMudEngine/GoMud`, `upstream` remote → GoMud) and already ports the playtest harness. The APIs this module touches — `mutators`, `rooms`/`ZoneConfig`, `events` (`NewRound`/`DayNightCycle`), `gametime`, `plugins` — **match upstream today**. The portability risk is *future drift*, since DOGMud diverges elsewhere (combat, permadeath sunset, level-up disabled).
@@ -557,6 +613,26 @@ DOGMud is a **fork** of GoMud (same module path `github.com/GoMudEngine/GoMud`, 
 - **Backport procedure:** copy `modules/weather/` into the other engine's `modules/` (same import path → compiles as-is), run `go generate ./... && go build`. If a touched API drifted, fix only `engine/`; `sim/` is untouched.
 - **Guardrail:** an architecture test asserts the `sim/` package imports no `internal/*`. (The `crawler/` legitimately reads the live world and so imports the engine; only the simulation core must stay pure.) If someone reaches into the engine from the core, CI fails.
 - **Version note in README** (mirroring the playtest module): the module needs an engine with the `mutators` buff fields + `DayNightCycle` event; on older engines it fails soft.
+
+### 13.3 Module registry onboarding (one-time, maintainer-coordinated)
+Distribution targets GoMud's module registry so operators can `go run . module install weather`. The registry has no automated dependency field (per the playtest module's README), so:
+- The module **README states engine prerequisites explicitly** (mutator buff fields + `DayNightCycle`; fails soft on older engines).
+- Onboarding the `weather` entry is a **one-time coordination step with the GoMud maintainers** (Volte6). It is process, not an engine code change.
+- Until/if listed, the module installs by dropping `module/weather/` into a GoMud checkout's `modules/weather/` and rebuilding — the same dev path the playtest harness uses.
+
+### 13.4 Review & ownership workflow
+
+| Change type | Owner | Review path |
+|---|---|---|
+| Module code & data (`modules/weather/**`) | Us | Our repo's normal review. |
+| Any GoMud engine change (`internal/**`) | Volte6 / GoMud | Upstream PR + maintainer review; kept to **zero for v1** by design (§5.6). |
+| Registry listing | GoMud maintainers | One-time onboarding (§13.3). |
+| DOGMud-side adapter fixes (`engine/` on drift) | Us | DOGMud repo review. |
+
+**Guiding principle: keep the engine PR queue empty.** If a feature seems to need a core change, first try to express it through existing mutator/event/overlay mechanisms behind the `engine/` adapter; only escalate to an upstream proposal when there is no module-side path, and present it as optional and backward-compatible.
+
+### 13.5 Licensing
+GoMud is **GPLv3**; this module compiles into a GPLv3 binary and ships under **GPLv3** to match the engine and the broader module ecosystem.
 
 ---
 
@@ -569,6 +645,7 @@ DOGMud is a **fork** of GoMud (same module path `github.com/GoMudEngine/GoMud`, 
 | **Engine adapter** | Table tests mapping `StateDiff` → expected mutator `Add/Remove` calls (mutator layer mocked). |
 | **Presentation** | Emote-table selection tests (right table for `(weather,biome,indoor)`); `tag-only` mode emits nothing. |
 | **Integration (manual / harness)** | Boot a small world, `weather spawn storm <zone>`, walk a front across a mountain chain, observe decay; verify self-heal on module disable. The **playtest harness** is the natural driver here — fitting, given the shared lineage. |
+| **OOBE smoke test** | On a **stock** GoMud world with only `Enabled: true`: boot → crawler builds a graph → fronts spawn → standard biomes get weather + emotes → no errors/warnings beyond expected. Then `Enabled: false` → rooms self-heal to calm. Directly encodes the §2.3 bar; runs in CI against a fixture world where feasible. |
 
 ---
 
@@ -591,11 +668,12 @@ DOGMud is a **fork** of GoMud (same module path `github.com/GoMudEngine/GoMud`, 
 
 1. **M1 — Crawler.** Graph build + cache + `weather graph`/`weather rebuild` commands + tests. *Shippable alone (a "zone map" utility).*
 2. **M2 — Sim core.** `sim/` package, climate profiles, feedback loop, deterministic tick, golden tests. *No engine effects yet; observable via a dump command.*
-3. **M3 — Application & presentation.** Engine adapter, mutator application, emote tables, curated buffs, persistence, full command set, config. *First end-to-end weather.*
-4. **M4 — Polish & docs.** Default climate/emote/buff content for common biomes, README + builder extension guide, harness-driven integration pass.
-5. **v2 — Seasons.** Per Section 11.
+3. **M3 — Application & presentation.** Engine adapter, mutator application, emote tables, curated buffs, persistence, full command set, config. Resolves verification items R-core-1/2 (§5.6). *First end-to-end weather; OOBE acceptance (§2.3) begins here.*
+4. **M4 — Polish, default content & docs.** Default climate/emote/buff content for **all standard biomes** (the OOBE requirement), README + builder extension guide, OOBE smoke test green (§14), harness-driven integration pass. *Module is "clone → flip flag → works."*
+5. **Registry onboarding** — coordinate the `weather` listing with GoMud maintainers (§13.3). Can begin once M3 is stable; gated only on process, not engine code.
+6. **v2 — Seasons.** Per Section 11.
 
-Each milestone is its own spec → plan → implementation cycle; M1–M3 correspond to the three sub-projects.
+Each milestone is its own spec → plan → implementation cycle; M1–M3 correspond to the three sub-projects. **No milestone depends on a GoMud engine change** (§5.6).
 
 ---
 
