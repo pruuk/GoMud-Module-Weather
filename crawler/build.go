@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"path"
 	"sort"
 
@@ -29,7 +30,10 @@ func DefaultOptions() Options {
 
 // Build walks the world via r and produces a zone-adjacency Graph.
 func Build(r WorldReader, opts Options) (*sim.Graph, error) {
-	zones := includedZones(r, opts)
+	zones, err := includedZones(r, opts)
+	if err != nil {
+		return nil, err
+	}
 	roomZone := indexRoomZones(r, zones)
 	nodes := buildNodes(r, zones)
 	edges := buildEdges(r, zones, roomZone, opts)
@@ -45,26 +49,36 @@ func Build(r WorldReader, opts Options) (*sim.Graph, error) {
 }
 
 // includedZones returns the set of zones to crawl, skipping any whose name
-// matches an ExcludeZonePatterns glob (path.Match syntax).
-func includedZones(r WorldReader, opts Options) map[string]bool {
+// matches an ExcludeZonePatterns glob (path.Match syntax). It returns an error
+// if any pattern is malformed.
+func includedZones(r WorldReader, opts Options) (map[string]bool, error) {
 	out := map[string]bool{}
 	for _, z := range r.ZoneNames() {
-		if isExcluded(z, opts.ExcludeZonePatterns) {
+		excluded, err := isExcluded(z, opts.ExcludeZonePatterns)
+		if err != nil {
+			return nil, err
+		}
+		if excluded {
 			continue
 		}
 		out[z] = true
 	}
-	return out
+	return out, nil
 }
 
-// isExcluded reports whether zone matches any of the glob patterns.
-func isExcluded(zone string, patterns []string) bool {
+// isExcluded reports whether zone matches any of the glob patterns. It returns
+// an error if a pattern is malformed (path.Match's ErrBadPattern).
+func isExcluded(zone string, patterns []string) (bool, error) {
 	for _, p := range patterns {
-		if ok, _ := path.Match(p, zone); ok {
-			return true
+		ok, err := path.Match(p, zone)
+		if err != nil {
+			return false, fmt.Errorf("invalid ExcludeZonePatterns entry %q: %w", p, err)
+		}
+		if ok {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // indexRoomZones maps every room id in the included zones to its zone, so an

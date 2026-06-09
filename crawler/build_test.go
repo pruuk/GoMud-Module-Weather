@@ -161,6 +161,16 @@ func TestDefaultOptions(t *testing.T) {
 	}
 }
 
+func TestBuild_BadExcludePattern(t *testing.T) {
+	f := newFakeReader()
+	f.addRoom("Town", "city", 1, true)
+
+	_, err := Build(f, Options{ExcludeZonePatterns: []string{"[bad"}})
+	if err == nil {
+		t.Fatal("want error for malformed exclude pattern, got nil")
+	}
+}
+
 func TestBuild_EndToEnd(t *testing.T) {
 	f := newFakeReader()
 	f.addRoom("Frostfang", "tundra", 1, true, ExitView{ToRoom: 2})
