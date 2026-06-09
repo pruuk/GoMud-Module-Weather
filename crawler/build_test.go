@@ -119,3 +119,23 @@ func TestBuild_NodeMetadata(t *testing.T) {
 		t.Errorf("Glade node wrong: %+v", gld)
 	}
 }
+
+func TestBuild_Components(t *testing.T) {
+	f := newFakeReader()
+	// Component 1: A <-> B connected.
+	f.addRoom("A", "plains", 1, true, ExitView{ToRoom: 2})
+	f.addRoom("B", "forest", 2, true, ExitView{ToRoom: 1})
+	// Component 2: C connected to D.
+	f.addRoom("C", "swamp", 3, true, ExitView{ToRoom: 4})
+	f.addRoom("D", "swamp", 4, true, ExitView{ToRoom: 3})
+	// Component 3: Island, isolated (no exits).
+	f.addRoom("Island", "ocean", 5, true)
+
+	g, err := Build(f, Options{IncludeSecretExits: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Components != 3 {
+		t.Errorf("want 3 components, got %d", g.Components)
+	}
+}

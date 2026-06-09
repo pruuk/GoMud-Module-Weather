@@ -138,8 +138,34 @@ func canonicalPair(a, b string) [2]string {
 	return [2]string{b, a}
 }
 
-// countComponents returns the number of connected components. (Implemented in
-// a later task; stubbed to 0 for now.)
+// countComponents returns the number of connected components in the zone graph
+// using union-find. Every included zone is its own component until edges merge
+// them, so isolated zones each count once.
 func countComponents(zones map[string]bool, edges []sim.Edge) int {
-	return 0
+	parent := make(map[string]string, len(zones))
+	for z := range zones {
+		parent[z] = z
+	}
+
+	var find func(string) string
+	find = func(x string) string {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]] // path halving
+			x = parent[x]
+		}
+		return x
+	}
+
+	for _, e := range edges {
+		ra, rb := find(e.A), find(e.B)
+		if ra != rb {
+			parent[ra] = rb
+		}
+	}
+
+	roots := map[string]bool{}
+	for z := range zones {
+		roots[find(z)] = true
+	}
+	return len(roots)
 }
