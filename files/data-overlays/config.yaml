@@ -1,0 +1,5 @@
+# Modules.weather.* defaults. This overlay overrides the base config.yaml; do
+# NOT add a Modules: weather: block to config-overrides.yaml (it will not merge).
+Enabled: true
+IncludeSecretExits: true   # count secret/hidden exits as zone adjacency
+RebuildGraphOnBoot: false  # false = use the cached graph if present
