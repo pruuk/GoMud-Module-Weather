@@ -68,3 +68,19 @@ func TestFromJSONError(t *testing.T) {
 		t.Error("FromJSON should return an error for malformed JSON")
 	}
 }
+
+func TestGraphZones(t *testing.T) {
+	g := &Graph{Nodes: map[string]ZoneNode{
+		"B": {Zone: "B"}, "A": {Zone: "A"}, "C": {Zone: "C"},
+	}}
+	got := g.Zones()
+	want := []string{"A", "B", "C"} // sorted for determinism
+	if len(got) != len(want) {
+		t.Fatalf("want %d zones, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Zones()[%d] = %q, want %q (must be sorted)", i, got[i], want[i])
+		}
+	}
+}

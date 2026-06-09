@@ -1,6 +1,9 @@
 package sim
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"sort"
+)
 
 // GraphVersion is bumped whenever the on-disk cache format changes, so a
 // loader can detect and rebuild a stale cache.
@@ -49,6 +52,16 @@ func FromJSON(b []byte) (*Graph, error) {
 		return nil, err
 	}
 	return &g, nil
+}
+
+// Zones returns all zone names in the graph, sorted for deterministic iteration.
+func (g *Graph) Zones() []string {
+	out := make([]string, 0, len(g.Nodes))
+	for z := range g.Nodes {
+		out = append(out, z)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Neighbors returns the zones adjacent to z, each as an Edge oriented from z
