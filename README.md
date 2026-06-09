@@ -19,11 +19,13 @@ engine-native, compiled-in, data-driven, and testable in isolation.
 
 ## Status
 
-**M1a complete — geography crawler core.** The pure, standalone-testable core
-(`sim/`, `crawler/`) is implemented and unit-tested (`go test ./...`). Next up
-(M1b): the engine-backed `WorldReader` over `internal/rooms`, the
-`weather graph` / `weather rebuild` admin commands, and on-disk cache
-persistence — these compile inside a GoMud checkout.
+**M1b complete — crawler runs against a live world.** On top of the pure core
+(`sim/`, `crawler/`), the `engine/` adapter reads the live GoMud world, the
+module builds a geography graph on the first round, caches it to disk, and
+exposes an admin `weather` command (summary / `graph [zone]` / `rebuild`).
+Smoke-tested on upstream GoMud's default world (15 zones, build → persist →
+reload verified). Built for upstream GoMud; the only DOGMud backport delta is
+the one-line `sendLine` helper. Next: M2 (weather simulation core).
 
 The full design remains the source of truth for what we're building and why:
 
@@ -108,12 +110,19 @@ startup warning rather than crashing.
 
 ## Development
 
-The pure core (`sim/`, `crawler/`) is developed and tested standalone in this
-repo: `go test ./...`. The engine-backed reader, plugin registration, and admin
-commands (next milestone) compile only inside a GoMud checkout — develop those
-by syncing the module source into a checkout's `modules/weather/` (without this
-repo's `go.mod`, which must not travel), then `go generate ./... && go build`.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the module/engine boundary.
+The pure core (`sim/`, `crawler/`) is tested standalone in this repo:
+`go test ./sim/... ./crawler/...` (note: NOT `./...`, which now includes the
+engine-coupled packages). The `engine/` and root `weather` packages import the
+GoMud engine and compile only inside an upstream GoMud checkout. To build/test
+them, sync the module into a checkout and build there:
+
+    pwsh scripts/sync-to-checkout.ps1 -Checkout <path-to-GoMud-checkout>
+    # then, in the checkout:
+    go generate ./... && go build && go test ./modules/weather/...
+
+The sync excludes this repo's `go.mod` (in-checkout modules have none). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the module/engine boundary and the
+DOGMud backport delta.
 
 ## License
 

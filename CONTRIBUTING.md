@@ -58,6 +58,17 @@ If your change adds a knob, it must have a sensible default that keeps OOBE true
   update it when the package's responsibilities change. **Every implementation
   plan must include a task to create/update the relevant `context.md` files.**
 
+### DOGMud backport delta
+
+This module is built for upstream GoMud. The only API that differs in the
+DOGMud fork is `users.UserRecord.SendText`: upstream takes `(text string)`;
+DOGMud takes `(category messaging.MessageCategory, text string)`. All module
+output goes through the single `sendLine` helper in `weather.go`, so backporting
+to DOGMud is a one-line change: `user.SendText(messaging.CategorySystem, text)`
+plus the `internal/messaging` import. If a future change adds another
+engine-divergent call, isolate it behind a similar helper rather than scattering
+it.
+
 ## Development workflow
 
 This module only compiles inside a GoMud checkout:

@@ -161,7 +161,7 @@ modules/weather/
 │   ├── climate.go        #   ClimateProfile, WeatherType, WeatherInfluence
 │   ├── tick.go           #   Step(state, world-readonly-view, rng) -> nextState + StateDiff
 │   └── rng.go            #   seedable PRNG wrapper (deterministic)
-├── crawler/              # Geography crawler. Imports the engine adapter, not sim.
+├── crawler/              # geography crawler (zone adjacency) — pure; consumes a WorldReader, imports sim
 │   └── crawl.go
 ├── engine/               # The ONLY package that imports internal/rooms, /mutators, /events.
 │   ├── adapter.go        #   implements sim's WorldView + the Applier interface
@@ -333,6 +333,8 @@ A versioned JSON/YAML file via `plugin.WriteBytes("geography.json", …)`:
 > implemented and unit-tested standalone. Remaining for M1b: the live
 > engine-backed `WorldReader`, the `weather graph`/`weather rebuild` commands,
 > and on-disk cache persistence.
+
+> **Status (2026-06-09, M1b):** engine-backed WorldReader, versioned cache persistence, first-round build, and the `weather` admin command (summary/graph/rebuild) are implemented and smoke-tested on upstream GoMud's default world (15 zones; build → persist → reload verified). §6 is complete. The only DOGMud backport delta is the one-line sendLine helper.
 
 ---
 
@@ -647,7 +649,7 @@ DOGMud is a **fork** of GoMud (same module path `github.com/GoMudEngine/GoMud`, 
 ### 13.2 Strategy
 - **Ports & adapters (Section 4.2).** `sim/` and `crawler/`'s logic are engine-agnostic; **all** engine calls live in `engine/`.
 - **Backport procedure:** copy `modules/weather/` into the other engine's `modules/` (same import path → compiles as-is), run `go generate ./... && go build`. If a touched API drifted, fix only `engine/`; `sim/` is untouched.
-- **Guardrail:** an architecture test asserts the `sim/` package imports no `internal/*`. (The `crawler/` legitimately reads the live world and so imports the engine; only the simulation core must stay pure.) If someone reaches into the engine from the core, CI fails.
+- **Guardrail:** an architecture test asserts the `sim/` package imports no `internal/*`. The `crawler/` is also pure — it reads the world through the `WorldReader` interface; the engine-backed `WorldReader` implementation lives in `engine/`. If someone reaches into the engine from `sim/` or `crawler/`, CI fails.
 - **Version note in README** (mirroring the playtest module): the module needs an engine with the `mutators` buff fields + `DayNightCycle` event; on older engines it fails soft.
 
 ### 13.3 Module registry onboarding (one-time, maintainer-coordinated)
