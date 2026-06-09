@@ -18,6 +18,15 @@ type Options struct {
 	BuiltAtRound uint64
 }
 
+// DefaultOptions returns the recommended crawler options: secret exits count
+// toward adjacency, and transient instance/ephemeral zones are skipped.
+func DefaultOptions() Options {
+	return Options{
+		IncludeSecretExits:  true,
+		ExcludeZonePatterns: []string{"instance_*", "ephemeral_*"},
+	}
+}
+
 // Build walks the world via r and produces a zone-adjacency Graph.
 func Build(r WorldReader, opts Options) (*sim.Graph, error) {
 	zones := includedZones(r, opts)

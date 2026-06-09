@@ -1,6 +1,11 @@
 package crawler
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+
+	"github.com/GoMudEngine/GoMud/modules/weather/sim"
+)
 
 func TestBuild_BasicAdjacency(t *testing.T) {
 	f := newFakeReader()
@@ -137,5 +142,58 @@ func TestBuild_Components(t *testing.T) {
 	}
 	if g.Components != 3 {
 		t.Errorf("want 3 components, got %d", g.Components)
+	}
+}
+
+func TestDefaultOptions(t *testing.T) {
+	o := DefaultOptions()
+	if !o.IncludeSecretExits {
+		t.Error("DefaultOptions should include secret exits")
+	}
+	want := map[string]bool{"instance_*": true, "ephemeral_*": true}
+	if len(o.ExcludeZonePatterns) != len(want) {
+		t.Fatalf("want %d default exclude patterns, got %v", len(want), o.ExcludeZonePatterns)
+	}
+	for _, p := range o.ExcludeZonePatterns {
+		if !want[p] {
+			t.Errorf("unexpected default exclude pattern %q", p)
+		}
+	}
+}
+
+func TestBuild_EndToEnd(t *testing.T) {
+	f := newFakeReader()
+	f.addRoom("Frostfang", "tundra", 1, true, ExitView{ToRoom: 2})
+	f.addRoom("Frostfang", "tundra", 2, true, ExitView{ToRoom: 1}, ExitView{ToRoom: 3})
+	f.addRoom("Saltmarsh", "swamp", 3, true, ExitView{ToRoom: 2})
+
+	opts := DefaultOptions()
+	opts.BuiltAtRound = 777
+	g, err := Build(f, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if g.Version != 1 {
+		t.Errorf("want version 1, got %d", g.Version)
+	}
+	if g.BuiltAtRound != 777 {
+		t.Errorf("want BuiltAtRound 777, got %d", g.BuiltAtRound)
+	}
+	if g.Components != 1 {
+		t.Errorf("want 1 component, got %d", g.Components)
+	}
+
+	// The whole graph must survive the cache round-trip unchanged.
+	b, err := g.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := sim.FromJSON(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(g, got) {
+		t.Errorf("graph changed across JSON round trip")
 	}
 }
