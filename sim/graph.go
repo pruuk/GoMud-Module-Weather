@@ -40,7 +40,9 @@ func (g *Graph) ToJSON() ([]byte, error) {
 	return json.MarshalIndent(g, "", "  ")
 }
 
-// FromJSON parses a graph from its cache format.
+// FromJSON parses a graph from its cache format. Callers should compare the
+// returned Graph's Version against GraphVersion and rebuild the graph if they
+// differ, since an older cache may use an incompatible layout.
 func FromJSON(b []byte) (*Graph, error) {
 	var g Graph
 	if err := json.Unmarshal(b, &g); err != nil {
@@ -56,7 +58,7 @@ func (g *Graph) Neighbors(z string) []Edge {
 	for _, e := range g.Edges {
 		switch z {
 		case e.A:
-			out = append(out, Edge{A: e.A, B: e.B, Weight: e.Weight})
+			out = append(out, e)
 		case e.B:
 			out = append(out, Edge{A: e.B, B: e.A, Weight: e.Weight})
 		}
