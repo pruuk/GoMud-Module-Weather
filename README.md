@@ -19,15 +19,21 @@ engine-native, compiled-in, data-driven, and testable in isolation.
 
 ## Status
 
-**Design phase.** No code yet. The full design is the source of truth for what
-we're building and why:
+**M1a complete — geography crawler core.** The pure, standalone-testable core
+(`sim/`, `crawler/`) is implemented and unit-tested (`go test ./...`). Next up
+(M1b): the engine-backed `WorldReader` over `internal/rooms`, the
+`weather graph` / `weather rebuild` admin commands, and on-disk cache
+persistence — these compile inside a GoMud checkout.
+
+The full design remains the source of truth for what we're building and why:
 
 - **[Design spec](docs/superpowers/specs/2026-06-08-weather-module-design.md)** —
   scope, alternatives considered, architecture, the module/engine boundary,
   v2 seasons seams, extension guide, testing, risks, and milestones.
+- **[M1a plan](docs/superpowers/plans/2026-06-09-geography-crawler-core.md)** —
+  the implemented crawler-core plan.
 
-Feedback from GoMud community developers is welcome on the spec before
-implementation begins.
+Feedback from GoMud community developers is welcome on the spec.
 
 ## Design highlights
 
