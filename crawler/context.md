@@ -54,7 +54,8 @@ type WorldReader interface {
   `fakeReader`: adjacency, weights, secret-exit option, zone exclusion, node
   metadata, components, and an end-to-end cache round-trip.
 
-## Next (M1b)
-A live `WorldReader` over `internal/rooms` (`GetAllZoneNames`,
-`GetAllZoneRoomsIds`, `LoadRoom`, `GetZoneBiome`), plus the
-`weather graph` / `weather rebuild` admin commands and cache persistence.
+## Status
+M1b is complete: the live `engine.WorldReader` (over `internal/rooms`), the
+`weather graph` / `weather rebuild` admin commands, and cache persistence are
+implemented (see the `engine` and root `weather` packages). Future milestones
+(M2+) add the weather simulation that consumes this graph.

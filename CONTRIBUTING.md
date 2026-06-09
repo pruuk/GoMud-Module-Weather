@@ -12,7 +12,7 @@ We own the **module**. Volte6 / the GoMud maintainers own the **engine**
 
 | Change type | Owner | Review path |
 |---|---|---|
-| Module code & data (`module/weather/**`) | Us | This repo's normal review. |
+| Module code & data (`modules/weather/**`) | Us | This repo's normal review. |
 | Any GoMud engine change (`internal/**`) | GoMud | Upstream PR + maintainer review. |
 | Registry listing | GoMud maintainers | One-time onboarding. |
 | DOGMud adapter fixes (on API drift) | Us | DOGMud repo review. |
@@ -73,7 +73,7 @@ it.
 
 This module only compiles inside a GoMud checkout:
 
-1. Place `module/weather/` under a checkout's `modules/weather/`.
+1. Place `modules/weather/` under a checkout's `modules/weather/`.
 2. `go generate ./... && go build`.
 3. Run the server; exercise via admin commands and/or the playtest harness.
 
@@ -83,5 +83,5 @@ unit-tested without a running server (via fake `WorldView` fixtures).
 ## Commits & reviews
 
 - Keep module and any (rare) engine changes in **separate** PRs to separate
-  repos — never mix a `module/weather/**` change with an `internal/**` change.
+  repos — never mix a `modules/weather/**` change with an `internal/**` change.
 - Reference the relevant spec section in non-trivial PRs.

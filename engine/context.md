@@ -1,10 +1,7 @@
 # engine Package Context
 
 ## Overview
-`engine` is the weather module's adapter to the GoMud engine. It is the ONLY
-package in the module that imports the engine (`internal/*`). Keeping every
-engine call here is what makes the rest of the module (`sim`, `crawler`) pure
-and portable across GoMud and DOGMud.
+`engine` concentrates the direct engine-world calls (room/zone/biome reads, cache codec) and implements `crawler.WorldReader`. Together with the root `weather` package — which imports `internal/*` for plugin infrastructure — these are the only packages that touch the engine; `sim` and `crawler` stay pure. That split keeps the module portable across GoMud and DOGMud.
 
 ## Key Components
 ### Core Files

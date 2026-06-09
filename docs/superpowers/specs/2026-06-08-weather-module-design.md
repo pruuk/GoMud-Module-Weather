@@ -163,7 +163,7 @@ modules/weather/
 │   └── rng.go            #   seedable PRNG wrapper (deterministic)
 ├── crawler/              # geography crawler (zone adjacency) — pure; consumes a WorldReader, imports sim
 │   └── crawl.go
-├── engine/               # The ONLY package that imports internal/rooms, /mutators, /events.
+├── engine/               # The ONLY package that imports internal/rooms, /mutators, /events (direct engine-world calls; the root weather package also imports internal/* for plugin infrastructure).
 │   ├── adapter.go        #   implements sim's WorldView + the Applier interface
 │   ├── apply.go          #   StateDiff -> mutator Add/Remove on zones/rooms
 │   ├── emotes.go         #   ambient emote scheduling
@@ -447,7 +447,7 @@ All randomness flows through the injected `*RNG` (7.6), so `Step` is a pure func
 
 ## 8. Sub-Project 3a — Engine Adapter (`engine/`)
 
-The **only** package importing `internal/rooms`, `internal/mutators`, `internal/events`, `internal/gametime`.
+The primary package for direct engine-world calls (`internal/rooms`, `internal/mutators`, `internal/events`, `internal/gametime`); the root `weather` package also imports `internal/*` for plugin infrastructure (plugins, events, users, mudlog).
 
 - **`WorldView` implementation.** Wraps the cached geography graph + live `GetZoneBiome` to satisfy `sim.WorldView`. Built once per tick as an immutable snapshot so the sim sees a consistent world.
 - **`StateDiff` application** (Section 9.1).
