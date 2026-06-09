@@ -34,6 +34,8 @@ This repo's `go.mod` declares the module path **`github.com/GoMudEngine/GoMud/mo
 | `crawler/build.go` | `Build`, `Options`, `DefaultOptions`, and unexported helpers. |
 | `crawler/build_test.go` | Behavior tests for `Build` (adjacency, weights, options, components, metadata). |
 | `crawler/fake_reader_test.go` | In-memory `fakeReader` test helper + interface-satisfaction test. |
+| `sim/context.md` | Package documentation (GoMud `context.md` convention) for `sim`. |
+| `crawler/context.md` | Package documentation (GoMud `context.md` convention) for `crawler`. |
 
 ---
 
@@ -1151,6 +1153,155 @@ Expected: PASS (both packages).
 ```bash
 git add README.md docs/superpowers/specs/2026-06-08-weather-module-design.md
 git commit -m "docs: reconcile repo layout with crawler core implementation"
+```
+
+---
+
+## Task 12: Package `context.md` documentation (GoMud convention)
+
+GoMud packages carry a `context.md` describing the package for humans and AI
+agents (see `internal/rooms/context.md`, `internal/mutators/context.md`). We
+follow that convention for every package we add.
+
+**Files:**
+- Create: `sim/context.md`
+- Create: `crawler/context.md`
+
+- [ ] **Step 1: Create `sim/context.md`**
+
+````markdown
+# sim Package Context
+
+## Overview
+`sim` is the pure, engine-independent core of the weather module. It holds the
+geography `Graph` that the crawler produces and the weather simulation will
+consume. Nothing here imports the GoMud engine (`internal/*`) — a rule enforced
+by `arch_test.go` — so the simulation stays unit-testable without a running
+server and portable across GoMud and DOGMud.
+
+## Key Components
+### Core Files
+- **graph.go**: the `Graph`, `ZoneNode`, and `Edge` types; the `GraphVersion`
+  constant; JSON cache serialization (`ToJSON` / `FromJSON`); and the
+  `Neighbors` adjacency query.
+- **arch_test.go**: architecture guardrail — fails if any file in this package
+  imports a `GoMudEngine/GoMud/internal` path.
+
+### Key Structures
+```go
+type ZoneNode struct {                 // one zone = one graph node
+    Zone, Biome string
+    Rooms       int
+    HasOutdoor  bool
+}
+type Edge struct {                     // undirected, canonical (A <= B)
+    A, B   string
+    Weight int                         // # of room-exits crossing the border
+}
+type Graph struct {
+    Version      int
+    BuiltAtRound uint64
+    Nodes        map[string]ZoneNode
+    Edges        []Edge
+    Components   int                   // connected-component count
+}
+```
+
+## Core Functions
+- `(*Graph) ToJSON() ([]byte, error)` / `FromJSON([]byte) (*Graph, error)` —
+  the on-disk cache format (indented JSON). `GraphVersion` lets a loader detect
+  a stale cache and rebuild.
+- `(*Graph) Neighbors(zone string) []Edge` — adjacent zones, each Edge oriented
+  from the queried zone (`Edge.A == zone`).
+
+## Dependencies
+- Standard library only (`encoding/json`). No engine imports (enforced).
+
+## Consumers
+- `crawler.Build` returns a `*Graph`.
+- (Future) the weather simulation reads adjacency via `Neighbors`; the engine
+  integration loads/saves the cache via `ToJSON`/`FromJSON`.
+
+## Testing
+- `graph_test.go`: JSON round-trip and `Neighbors`.
+- `arch_test.go`: purity guardrail.
+````
+
+- [ ] **Step 2: Create `crawler/context.md`**
+
+````markdown
+# crawler Package Context
+
+## Overview
+`crawler` builds a zone-adjacency `sim.Graph` from a read-only view of the
+world. The traversal/aggregation logic is pure and engine-independent: it
+reaches the world only through the `WorldReader` interface, so it is unit-tested
+with an in-memory fake and contains no engine imports. The live `WorldReader`
+that wraps `internal/rooms` lives in a separate, checkout-only package (added in
+milestone M1b).
+
+## Key Components
+### Core Files
+- **reader.go**: the `WorldReader` interface plus the `RoomView` / `ExitView`
+  value types it returns.
+- **build.go**: `Build`, `Options`, `DefaultOptions`, and the unexported
+  helpers `includedZones`, `indexRoomZones`, `buildNodes`, `buildEdges`,
+  `countComponents`, `canonicalPair`, `isExcluded`.
+
+### WorldReader interface
+```go
+type WorldReader interface {
+    ZoneNames() []string
+    ZoneBiome(zone string) string
+    RoomIDs(zone string) []int
+    Room(id int) (RoomView, bool)
+}
+```
+
+## Algorithm (Build)
+1. **includedZones** — the zones to crawl, minus any matching an
+   `ExcludeZonePatterns` glob (`path.Match`, e.g. `instance_*`).
+2. **indexRoomZones** — `roomId -> zone`, so an exit (which carries only a
+   destination room id) can be resolved to a zone.
+3. **buildNodes** — per-zone metadata: biome, room count, and whether any room
+   is outdoors.
+4. **buildEdges** — undirected, weighted adjacency from every cross-zone exit.
+   Secret exits are honored via `Options.IncludeSecretExits`; intra-zone exits
+   and exits whose target resolves to no included zone are skipped. Edges are
+   canonicalized (`A <= B`) and sorted for stable output.
+5. **countComponents** — union-find over zones + edges; isolated zones each
+   count as their own component.
+
+## Options
+- `IncludeSecretExits bool`, `ExcludeZonePatterns []string`,
+  `BuiltAtRound uint64`. `DefaultOptions()` enables secret exits and excludes
+  `instance_*` / `ephemeral_*`.
+
+## Dependencies
+- `github.com/GoMudEngine/GoMud/modules/weather/sim` (the `Graph` types).
+- Standard library (`sort`, `path`). No engine imports.
+
+## Testing
+- `build_test.go` drives `Build` through `fake_reader_test.go`'s in-memory
+  `fakeReader`: adjacency, weights, secret-exit option, zone exclusion, node
+  metadata, components, and an end-to-end cache round-trip.
+
+## Next (M1b)
+A live `WorldReader` over `internal/rooms` (`GetAllZoneNames`,
+`GetAllZoneRoomsIds`, `LoadRoom`, `GetZoneBiome`), plus the
+`weather graph` / `weather rebuild` admin commands and cache persistence.
+````
+
+- [ ] **Step 3: Verify the docs render and nothing else broke**
+
+Run: `go test ./...`
+Expected: PASS (context.md files are documentation; they don't affect the build).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add sim/context.md crawler/context.md
+git commit -m "docs(crawler): add sim/ and crawler/ context.md (GoMud convention)"
 ```
 
 ---

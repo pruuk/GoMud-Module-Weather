@@ -51,6 +51,12 @@ If your change adds a knob, it must have a sensible default that keeps OOBE true
   patch, not a redesign.
 - **Determinism.** The sim is driven by a seeded RNG; keep `sim.Step` a pure
   function of its inputs so runs stay reproducible and testable.
+- **Every package carries a `context.md`** (the GoMud convention — see
+  `internal/rooms/context.md`, `internal/mutators/context.md` upstream). It
+  describes the package's overview, key components/structures, core functions,
+  dependencies, consumers, and testing. Add it when you create a package and
+  update it when the package's responsibilities change. **Every implementation
+  plan must include a task to create/update the relevant `context.md` files.**
 
 ## Development workflow
 
