@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"path"
 	"sort"
 
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
@@ -34,14 +35,27 @@ func Build(r WorldReader, opts Options) (*sim.Graph, error) {
 	}, nil
 }
 
-// includedZones returns the set of zones to crawl. (Exclusion patterns are
-// added in a later task; for now every zone is included.)
+// includedZones returns the set of zones to crawl, skipping any whose name
+// matches an ExcludeZonePatterns glob (path.Match syntax).
 func includedZones(r WorldReader, opts Options) map[string]bool {
 	out := map[string]bool{}
 	for _, z := range r.ZoneNames() {
+		if isExcluded(z, opts.ExcludeZonePatterns) {
+			continue
+		}
 		out[z] = true
 	}
 	return out
+}
+
+// isExcluded reports whether zone matches any of the glob patterns.
+func isExcluded(zone string, patterns []string) bool {
+	for _, p := range patterns {
+		if ok, _ := path.Match(p, zone); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // indexRoomZones maps every room id in the included zones to its zone, so an

@@ -71,3 +71,27 @@ func TestBuild_SecretExitsOption(t *testing.T) {
 		t.Fatalf("with secrets excluded want one edge weight 1, got %+v", g.Edges)
 	}
 }
+
+func TestBuild_ExcludeZonePatterns(t *testing.T) {
+	f := newFakeReader()
+	f.addRoom("Town", "city", 1, true, ExitView{ToRoom: 2})
+	f.addRoom("instance_jail", "city", 2, false, ExitView{ToRoom: 1})
+
+	g, err := Build(f, Options{
+		IncludeSecretExits:  true,
+		ExcludeZonePatterns: []string{"instance_*"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := g.Nodes["instance_jail"]; ok {
+		t.Errorf("excluded zone should not appear as a node")
+	}
+	if len(g.Nodes) != 1 {
+		t.Errorf("want 1 node after exclusion, got %d", len(g.Nodes))
+	}
+	if len(g.Edges) != 0 {
+		t.Errorf("edge to an excluded zone should be dropped, got %+v", g.Edges)
+	}
+}
