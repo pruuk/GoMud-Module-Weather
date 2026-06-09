@@ -95,3 +95,27 @@ func TestBuild_ExcludeZonePatterns(t *testing.T) {
 		t.Errorf("edge to an excluded zone should be dropped, got %+v", g.Edges)
 	}
 }
+
+func TestBuild_NodeMetadata(t *testing.T) {
+	f := newFakeReader()
+	// Zone "Cavern": 2 rooms, both indoor -> hasOutdoor false.
+	f.addRoom("Cavern", "cave", 1, false)
+	f.addRoom("Cavern", "cave", 2, false)
+	// Zone "Glade": 1 indoor + 1 outdoor -> hasOutdoor true.
+	f.addRoom("Glade", "forest", 3, false)
+	f.addRoom("Glade", "forest", 4, true)
+
+	g, err := Build(f, Options{IncludeSecretExits: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cav := g.Nodes["Cavern"]
+	if cav.Biome != "cave" || cav.Rooms != 2 || cav.HasOutdoor {
+		t.Errorf("Cavern node wrong: %+v", cav)
+	}
+	gld := g.Nodes["Glade"]
+	if gld.Biome != "forest" || gld.Rooms != 2 || !gld.HasOutdoor {
+		t.Errorf("Glade node wrong: %+v", gld)
+	}
+}

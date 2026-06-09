@@ -70,12 +70,25 @@ func indexRoomZones(r WorldReader, zones map[string]bool) map[int]string {
 	return idx
 }
 
-// buildNodes creates a ZoneNode per included zone. (Metadata is filled in a
-// later task; for now only the zone name is set.)
+// buildNodes creates a ZoneNode per included zone, populated with its biome,
+// room count, and whether any of its rooms is outdoors.
 func buildNodes(r WorldReader, zones map[string]bool) map[string]sim.ZoneNode {
 	nodes := map[string]sim.ZoneNode{}
 	for zone := range zones {
-		nodes[zone] = sim.ZoneNode{Zone: zone}
+		ids := r.RoomIDs(zone)
+		hasOutdoor := false
+		for _, id := range ids {
+			if room, ok := r.Room(id); ok && room.Outdoor {
+				hasOutdoor = true
+				break
+			}
+		}
+		nodes[zone] = sim.ZoneNode{
+			Zone:       zone,
+			Biome:      r.ZoneBiome(zone),
+			Rooms:      len(ids),
+			HasOutdoor: hasOutdoor,
+		}
 	}
 	return nodes
 }
