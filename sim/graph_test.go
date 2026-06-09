@@ -62,3 +62,9 @@ func TestGraphNeighbors(t *testing.T) {
 		t.Errorf("unknown zone should have no neighbors, got %v", n)
 	}
 }
+
+func TestFromJSONError(t *testing.T) {
+	if _, err := FromJSON([]byte("{not valid json")); err == nil {
+		t.Error("FromJSON should return an error for malformed JSON")
+	}
+}
