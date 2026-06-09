@@ -78,6 +78,9 @@ func buildEdges(r WorldReader, zones map[string]bool, roomZone map[int]string, o
 				continue
 			}
 			for _, ex := range room.Exits {
+				if ex.Secret && !opts.IncludeSecretExits {
+					continue
+				}
 				dstZone, known := roomZone[ex.ToRoom]
 				if !known || dstZone == zone {
 					continue

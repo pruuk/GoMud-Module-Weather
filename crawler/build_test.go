@@ -44,3 +44,30 @@ func TestBuild_UnknownExitTargetIgnored(t *testing.T) {
 		t.Errorf("dangling exit target should produce no edge, got %+v", g.Edges)
 	}
 }
+
+func TestBuild_SecretExitsOption(t *testing.T) {
+	makeWorld := func() *fakeReader {
+		f := newFakeReader()
+		// One normal crossing exit A(1)->B(2) and one secret crossing exit
+		// A(1)->B(3).
+		f.addRoom("A", "plains", 1, true,
+			ExitView{ToRoom: 2},
+			ExitView{ToRoom: 3, Secret: true},
+		)
+		f.addRoom("B", "forest", 2, true)
+		f.addRoom("B", "forest", 3, true)
+		return f
+	}
+
+	// Included: both exits count -> weight 2.
+	g, _ := Build(makeWorld(), Options{IncludeSecretExits: true})
+	if len(g.Edges) != 1 || g.Edges[0].Weight != 2 {
+		t.Fatalf("with secrets included want one edge weight 2, got %+v", g.Edges)
+	}
+
+	// Excluded: only the normal exit counts -> weight 1.
+	g, _ = Build(makeWorld(), Options{IncludeSecretExits: false})
+	if len(g.Edges) != 1 || g.Edges[0].Weight != 1 {
+		t.Fatalf("with secrets excluded want one edge weight 1, got %+v", g.Edges)
+	}
+}
