@@ -71,6 +71,27 @@ files/      # (next chunk) config overlay + climate/weather/mutator/buff/emote d
 See the spec's *Architecture* section for the full breakdown and the three
 sub-projects (crawler → simulation core → engine integration).
 
+## Geography crawler
+
+The crawler (`crawler/`) turns a MUD's zones into a weighted **zone-adjacency
+graph** by walking room exits; the graph type and its JSON cache live in `sim/`.
+Both packages are **engine-agnostic** — zero engine imports (enforced by an
+architecture test), reading the world only through a small `WorldReader`
+interface — so the identical code runs on **GoMud and DOGMud**; only the thin
+`WorldReader` implementation differs per engine.
+
+Two semantics worth knowing when consuming the graph:
+
+- **Edge weight counts *directed* exits, not connections.** Each room-exit that
+  crosses a zone border adds 1, so a normal two-way border reads `weight: 2`
+  (one exit each way). Treat the weight as a "border width" proxy and halve it
+  if you need a connection count.
+- **Room→zone resolution assumes zones don't share room ids.** Each room id is
+  mapped to a single zone; if the same id were reported under two different
+  zones, the mapping (and a few edges) could vary between runs. Real worlds
+  don't do this — `WorldReader.RoomIDs` returns disjoint sets per zone — so it's
+  a non-issue in practice, noted only for `WorldReader` adapter authors.
+
 ## Installation (planned)
 
 Once listed in the GoMud module registry:
