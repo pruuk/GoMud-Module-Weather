@@ -2,24 +2,35 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the pure crawler core (M1a) run against a live GoMud world — an engine-backed `WorldReader`, a versioned on-disk graph cache, a boot-time build, and an admin `weather` command to inspect/rebuild the zone graph.
+**Goal:** Make the pure crawler core (M1a) run against a live **upstream GoMud** world — an engine-backed `WorldReader`, a versioned on-disk graph cache, a first-round build, and an admin `weather` command to inspect/rebuild the zone graph.
 
-**Architecture:** A new `engine/` package is the ONLY package that imports the GoMud engine (`internal/rooms`, etc.); it implements `crawler.WorldReader` and a pure cache decoder. The module root (`weather.go`, package `weather`) registers the plugin, loads config, builds-or-loads the graph on `SetOnLoad`, persists it via `plugin.WriteBytes`, and serves the `weather` admin command. The pure `sim`/`crawler` packages from M1a are unchanged except for two small test-coverage follow-ups.
+**Architecture:** A new `engine/` package is the ONLY package that imports the GoMud engine (`internal/rooms`, etc.); it implements `crawler.WorldReader` and a pure cache decoder. The module root (`weather.go`, package `weather`) registers the plugin, loads config, builds-or-loads the graph on the first `NewRound`, persists it via `plugin.WriteBytes`, and serves the `weather` admin command. The pure `sim`/`crawler` packages from M1a are unchanged except for two small test-coverage follow-ups.
 
-**Tech Stack:** Go 1.25; GoMud/DOGMud engine packages (`internal/plugins`, `internal/rooms`, `internal/events`, `internal/users`, `internal/messaging`, `internal/mudlog`, `internal/util`); the module's own `sim`/`crawler`.
+**Tech Stack:** Go 1.25; upstream GoMud engine packages (`internal/plugins`, `internal/rooms`, `internal/exit`, `internal/events`, `internal/users`, `internal/mudlog`, `internal/util`); the module's own `sim`/`crawler`.
 
-**Spec:** Completes §6 (Geography Crawler) of `docs/superpowers/specs/2026-06-08-weather-module-design.md` — the engine-backed reader, cache persistence, and the `weather graph`/`weather rebuild` commands deferred from M1a. Also resolves the M1a final-review follow-ups (see memory `m1b-followups`).
+**Spec:** Completes §6 (Geography Crawler) of `docs/superpowers/specs/2026-06-08-weather-module-design.md` — the engine-backed reader, cache persistence, and the `weather graph`/`weather rebuild` commands deferred from M1a. Also resolves the M1a final-review follow-ups (memory `m1b-followups`).
 
 ---
 
-## CRITICAL: where this code builds and how it's tested
+## CRITICAL: targets upstream GoMud — where this builds and how it's tested
 
-Unlike M1a (pure, standalone), the `engine/` and `weather` packages import `internal/*` and **only compile inside a GoMud/DOGMud checkout**, where the module lives at `modules/weather/` as part of the engine module (no `go.mod`). Consequences for every engine task below:
+**Primary consumer = upstream GoMud** (`github.com/GoMudEngine/GoMud`). The DOGMud fork is a *backport* target, not the build target. Every engine API in this plan was verified against upstream GoMud `master`. There is exactly **one** upstream-vs-DOGMud divergence in this code — `user.SendText` — isolated behind a one-line `sendLine` helper (Task 7), so the DOGMud backport is a single-function change.
+
+Unlike M1a (pure, standalone), the `engine/` and `weather` packages import `internal/*` and **only compile inside a GoMud checkout**, where the module lives at `modules/weather/` as part of the engine module (no `go.mod`). Consequences for every engine task below:
 
 - **Source of truth = this repo** (`C:/Users/Calabe Davis/workspace/weather-module`). Author and commit here.
-- **Build/test = a checkout** = `C:/Users/Calabe Davis/workspace/DOGMud`. The module is synced into `DOGMud/modules/weather/` (WITHOUT `go.mod`), then `go generate ./... && go build && go test ./modules/weather/...`.
-- **Standalone repo tooling changes:** once `engine/` exists, `go test ./...` in the repo will fail to compile the engine package (no engine available). The repo's pure-package command is now **`go test ./sim/... ./crawler/...`**. Editor/LSP will show unresolved-import errors on `engine/`/`weather.go` in the standalone repo — that is expected; they resolve in the checkout.
-- The sync script created in Task 2 makes "push repo → checkout, build, test" a one-liner. The per-task loop for engine tasks is: **edit in repo → `git commit` in repo → run sync script → build/test in the DOGMud checkout → if red, fix in repo and repeat.**
+- **Build/test = an upstream GoMud checkout** at `C:/Users/Calabe Davis/workspace/GoMud` (cloned in Task 2). Sync the module into `GoMud/modules/weather/` (WITHOUT `go.mod`), then `go generate ./... && go build && go test ./modules/weather/...`. **Do NOT build against the DOGMud checkout** — its `SendText` signature differs, so upstream-targeted code won't compile there (that incompatibility IS the backport delta).
+- **Standalone repo tooling changes:** once `engine/` exists, `go test ./...` in the repo fails to compile the engine package (no engine available). The repo's pure-package command is now **`go test ./sim/... ./crawler/...`**. Editor/LSP will show unresolved-import errors on `engine/`/`weather.go` standalone — expected; they resolve in the checkout.
+- Per-task loop for engine tasks: **edit in repo → `git commit` in repo → run the sync script → build/test in the GoMud checkout → if red, fix in repo and repeat.**
+
+### Verified against upstream GoMud master (2026-06-09)
+- `plugins.New(name, version) *Plugin`; `(*Plugin).AddUserCommand(string, usercommands.UserCommand, bool, bool)`, `.AttachFileSystem(embed.FS) error`, `.WriteBytes(string, []byte) error`, `.ReadBytes(string) ([]byte, error)`; `Callbacks.SetOnLoad(func())`; `PluginConfig.Get(string) any` via `plug.Config.Get`.
+- `usercommands.UserCommand = func(rest string, user *users.UserRecord, room *rooms.Room, flags events.EventFlag) (bool, error)`.
+- `rooms.GetAllZoneNames() []string`, `GetAllZoneRoomsIds(string) []int`, `GetZoneBiome(string) string`, `LoadRoom(int) *Room`; `Room.RoomId int`, `Room.Zone string`, `Room.Exits map[string]exit.RoomExit`, `Room.GetBiome() *BiomeInfo`; `BiomeInfo.BiomeId string`; `exit.RoomExit.RoomId int`, `.Secret bool`.
+- `events.NewRound{RoundNumber uint64; ...}`, `events.RegisterListener(events.NewRound{}, handler)`, handler `func(events.Event) events.ListenerReturn` returning `events.Continue`.
+- `util.GetRoundCount() uint64`; `mudlog.Info/Warn/Error(msg string, args ...any)` (key-value args).
+- **Divergence (isolated):** upstream `user.SendText(text string)` vs DOGMud `user.SendText(category, text)`.
+- **Reference modules (upstream):** `modules/cleanup` (commands registered in init; `user.SendText(text)`), `modules/follow` (round-dependent work via an `events.NewRound` listener, not `onLoad`). There is no `playtest` module upstream — don't reference it.
 
 ---
 
@@ -38,7 +49,7 @@ Unlike M1a (pure, standalone), the `engine/` and `weather` packages import `inte
 | `engine/context.md` | Package documentation (GoMud convention). | n/a (docs) |
 | `weather_config.go` | `Config`, `buildConfig(getter)`, `loadConfig(plugin)`. | checkout |
 | `weather_config_test.go` | `buildConfig` test. | checkout |
-| `weather.go` | Plugin registration, `onLoad`, graph build/load/persist, `weather` command. | checkout |
+| `weather.go` | Plugin registration, `onLoad`, first-round graph build/load/persist, `sendLine`, `weather` command. | checkout |
 | `files/data-overlays/config.yaml` | `Modules.weather.*` defaults. | checkout |
 
 ---
@@ -113,20 +124,25 @@ git commit -m "test: add crawler purity guardrail and FromJSON error coverage"
 
 ---
 
-## Task 2: Checkout sync script + verify the module builds in DOGMud
+## Task 2: Upstream GoMud checkout + sync script
 
-Create the tooling that mirrors the module into a checkout, and confirm the engine compiles the (currently pure) module end-to-end. This proves the in-checkout workflow before any engine code exists.
+Clone upstream GoMud, create the sync tooling, and confirm the engine compiles the (currently pure) module end-to-end. This proves the in-checkout workflow before any engine code exists.
 
 **Files:** Create `scripts/sync-to-checkout.ps1`.
 
-- [ ] **Step 1: Create `scripts/sync-to-checkout.ps1`**
+- [ ] **Step 1: Clone the upstream GoMud checkout (once)**
+
+Run: `git clone https://github.com/GoMudEngine/GoMud "C:\Users\Calabe Davis\workspace\GoMud"`
+Then confirm it builds clean as-is: in that dir, `go build ./...` (Expected: success). If the clone or build fails, STOP and report (the module can't be tested without a working upstream checkout).
+
+- [ ] **Step 2: Create `scripts/sync-to-checkout.ps1`**
 
 ```powershell
-# Mirror the weather module source into a GoMud/DOGMud checkout's modules/weather/.
+# Mirror the weather module source into a GoMud checkout's modules/weather/.
 # The repo's go.mod is deliberately EXCLUDED: in-checkout modules have no go.mod
 # (they are part of the engine module). Run from the repo root.
 #
-#   pwsh scripts/sync-to-checkout.ps1 -Checkout C:\Users\Calabe Davis\workspace\DOGMud
+#   pwsh scripts/sync-to-checkout.ps1 -Checkout C:\Users\Calabe Davis\workspace\GoMud
 param([Parameter(Mandatory = $true)][string]$Checkout)
 
 $dest = Join-Path $Checkout "modules\weather"
@@ -143,14 +159,14 @@ if ($LASTEXITCODE -ge 8) { throw "robocopy failed with code $LASTEXITCODE" }
 Write-Host "Synced module source to $dest (go.mod excluded)."
 ```
 
-- [ ] **Step 2: Sync into the DOGMud checkout**
+- [ ] **Step 3: Sync into the GoMud checkout**
 
-Run: `pwsh scripts/sync-to-checkout.ps1 -Checkout "C:\Users\Calabe Davis\workspace\DOGMud"`
-Expected: prints `Synced module source to ...\modules\weather (go.mod excluded).` Confirm `C:\Users\Calabe Davis\workspace\DOGMud\modules\weather\` contains `sim/`, `crawler/`, and NO `go.mod`.
+Run: `pwsh scripts/sync-to-checkout.ps1 -Checkout "C:\Users\Calabe Davis\workspace\GoMud"`
+Expected: prints `Synced module source to ...\modules\weather (go.mod excluded).` Confirm `...\GoMud\modules\weather\` contains `sim/`, `crawler/`, and NO `go.mod`.
 
-- [ ] **Step 3: Regenerate the module registry and build in the checkout**
+- [ ] **Step 4: Regenerate the module registry and build in the checkout**
 
-Run (in `C:\Users\Calabe Davis\workspace\DOGMud`):
+Run (in `C:\Users\Calabe Davis\workspace\GoMud`):
 ```
 go generate ./...
 go build ./...
@@ -158,20 +174,20 @@ go test ./modules/weather/...
 ```
 Expected: `go generate` rewrites `modules/all-modules.go` to include `_ "github.com/GoMudEngine/GoMud/modules/weather"`; `go build` succeeds; `go test ./modules/weather/...` passes (the pure `sim`/`crawler` tests run inside the checkout too). If `all-modules.go` does not list `weather` after generate, STOP and report.
 
-- [ ] **Step 4: Commit the script**
+- [ ] **Step 5: Commit the script**
 
 ```bash
 git add scripts/sync-to-checkout.ps1
 git commit -m "build: add sync-to-checkout script for in-checkout module builds"
 ```
 
-> For all remaining tasks: after editing in the repo, re-run the Step 2 sync, then build/test in the DOGMud checkout as in Step 3.
+> For all remaining engine tasks: after editing in the repo, re-run Step 3 sync, then build/test in the GoMud checkout as in Step 4.
 
 ---
 
 ## Task 3: `engine` package — pure cache decoder
 
-Start the engine package with the one piece that's pure logic (sim-only): the version-checked cache decoder. This resolves the M1a follow-up that the `GraphVersion` staleness check had no consumer.
+Start the engine package with the one piece that's pure logic (sim-only): the version-checked cache decoder. Resolves the M1a follow-up that `GraphVersion`'s staleness check had no consumer.
 
 **Files:** Create `engine/doc.go`, `engine/cache.go`, `engine/cache_test.go`.
 
@@ -231,7 +247,7 @@ func TestDecodeCache(t *testing.T) {
 
 - [ ] **Step 3: Sync + run the test in the checkout to verify it fails**
 
-Sync (Task 2 Step 2), then in the DOGMud checkout run: `go test ./modules/weather/engine/`
+Sync (Task 2 Step 3), then in the GoMud checkout: `go test ./modules/weather/engine/`
 Expected: FAIL — `undefined: DecodeCache`.
 
 - [ ] **Step 4: Implement `engine/cache.go`**
@@ -331,8 +347,8 @@ var indoorBiomes = map[string]bool{
 
 // isOutdoorBiome reports whether a biome id is considered outdoors. An unknown
 // or empty biome defaults to outdoors.
-func isOutdoorBiome(biomeId string) bool {
-	return !indoorBiomes[biomeId]
+func isOutdoorBiome(biomeID string) bool {
+	return !indoorBiomes[biomeID]
 }
 
 // WorldReader implements crawler.WorldReader over the live GoMud engine.
@@ -369,10 +385,10 @@ func (WorldReader) Room(id int) (crawler.RoomView, bool) {
 }
 ```
 
-- [ ] **Step 4: Sync + verify it passes, and verify the interface is satisfied**
+- [ ] **Step 4: Sync + verify it passes; compilation proves interface satisfaction**
 
 `go test ./modules/weather/engine/`
-Expected: PASS. (Compilation alone proves `WorldReader` satisfies `crawler.WorldReader`, because `NewWorldReader` returns that interface type.)
+Expected: PASS. (Compilation proves `WorldReader` satisfies `crawler.WorldReader`, since `NewWorldReader` returns that interface type.)
 
 - [ ] **Step 5: Commit (in the repo)**
 
@@ -417,7 +433,7 @@ func TestBuildConfig(t *testing.T) {
 - [ ] **Step 2: Sync + run in checkout to verify it fails**
 
 `go test ./modules/weather/ -run TestBuildConfig`
-Expected: FAIL — `undefined: buildConfig` (and `package weather` has no non-test files yet; that's fine — the test names the package).
+Expected: FAIL — `undefined: buildConfig`.
 
 - [ ] **Step 3: Implement `weather_config.go`**
 
@@ -478,11 +494,13 @@ git commit -m "feat(weather): module config (Enabled/IncludeSecretExits/RebuildG
 
 ---
 
-## Task 6: Plugin registration + boot-time graph build/load/persist
+## Task 6: Plugin registration + first-round graph build/load/persist
+
+The graph build is deferred to the **first `NewRound`** (guaranteed after world load), not `onLoad` — matching the upstream `follow` module, which does round-dependent work via a `NewRound` listener. `onLoad` only loads config and registers the command + listener.
 
 **Files:** Create `weather.go`.
 
-> This task has no standalone unit test (it's plugin wiring verified by build + the smoke test in Task 8). The `go build ./...` in the checkout is the gate; the runtime behavior is verified in Task 8.
+> No standalone unit test (plugin wiring, verified by the checkout build in Task 7 + the smoke test in Task 8).
 
 - [ ] **Step 1: Implement `weather.go`**
 
@@ -492,6 +510,7 @@ package weather
 import (
 	"embed"
 
+	"github.com/GoMudEngine/GoMud/internal/events"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
 	"github.com/GoMudEngine/GoMud/internal/util"
@@ -503,12 +522,13 @@ import (
 //go:embed files/*
 var files embed.FS
 
-// weatherModule holds the plugin handle, resolved config, and the current
-// geography graph.
+// weatherModule holds the plugin handle, resolved config, the current geography
+// graph, and a one-shot flag for the first-round build.
 type weatherModule struct {
-	plug  *plugins.Plugin
-	cfg   Config
-	graph *sim.Graph
+	plug    *plugins.Plugin
+	cfg     Config
+	graph   *sim.Graph
+	started bool
 }
 
 var module weatherModule
@@ -521,15 +541,28 @@ func init() {
 	module.plug.Callbacks.SetOnLoad(module.onLoad)
 }
 
-// onLoad runs after the world is loaded. It registers the admin command and
-// makes the geography graph available (from cache or a fresh crawl).
+// onLoad loads config and registers the command + a NewRound listener. It does
+// NOT build the graph: onLoad's timing relative to world load is engine-specific,
+// so the world crawl is deferred to the first NewRound (onNewRound), when rooms
+// are guaranteed loaded.
 func (m *weatherModule) onLoad() {
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
 		return
 	}
 	m.plug.AddUserCommand(`weather`, m.cmdWeather, false, true) // admin-only for M1b
+	events.RegisterListener(events.NewRound{}, m.onNewRound)
+}
+
+// onNewRound builds (or loads) the geography graph once, on the first round
+// after boot, then no-ops every subsequent round.
+func (m *weatherModule) onNewRound(e events.Event) events.ListenerReturn {
+	if m.started {
+		return events.Continue
+	}
+	m.started = true
 	m.loadOrBuildGraph()
+	return events.Continue
 }
 
 // loadOrBuildGraph uses the cached graph when present and current, otherwise
@@ -539,7 +572,7 @@ func (m *weatherModule) loadOrBuildGraph() {
 		if b, err := m.plug.ReadBytes(engine.CacheIdentifier); err == nil {
 			if g, ok := engine.DecodeCache(b); ok {
 				m.graph = g
-				mudlog.Info("weather", "msg", "loaded geography cache",
+				mudlog.Info("Weather: loaded geography cache",
 					"zones", len(g.Nodes), "edges", len(g.Edges))
 				return
 			}
@@ -557,47 +590,57 @@ func (m *weatherModule) rebuildGraph() {
 
 	g, err := crawler.Build(engine.NewWorldReader(), opts)
 	if err != nil {
-		mudlog.Error("weather", "msg", "graph build failed", "error", err)
+		mudlog.Error("Weather: graph build failed", "error", err)
 		return
 	}
 	m.graph = g
 
 	if b, err := g.ToJSON(); err == nil {
 		if err := m.plug.WriteBytes(engine.CacheIdentifier, b); err != nil {
-			mudlog.Error("weather", "msg", "graph cache write failed", "error", err)
+			mudlog.Error("Weather: graph cache write failed", "error", err)
 		}
 	}
-	mudlog.Info("weather", "msg", "built geography graph",
+	mudlog.Info("Weather: built geography graph",
 		"zones", len(g.Nodes), "edges", len(g.Edges), "components", g.Components)
 }
 ```
 
 - [ ] **Step 2: Sync + build in the checkout**
 
-`go build ./...` (in the DOGMud checkout)
-Expected: success. (`cmdWeather` is referenced but defined in Task 7 — so this step will FAIL to compile with `m.cmdWeather undefined` until Task 7 is done. That is expected; proceed to Task 7 and build there. If you prefer a compiling checkpoint, do Tasks 6 and 7 back-to-back before building.)
+`go build ./...` (in the GoMud checkout). Expected: `m.cmdWeather undefined` — `cmdWeather` is added in Task 7. That is expected; proceed to Task 7 and build there. (Do Tasks 6 and 7 back-to-back for a green build.)
 
 - [ ] **Step 3: Commit (in the repo)**
 
 ```bash
 git add weather.go
-git commit -m "feat(weather): plugin registration + boot-time graph build/load/persist"
+git commit -m "feat(weather): plugin registration + first-round graph build/load/persist"
 ```
 
 ---
 
-## Task 7: The `weather` admin command
+## Task 7: The `weather` admin command (+ the `sendLine` portability seam)
 
-**Files:** Modify `weather.go` (add `cmdWeather` and helpers).
+**Files:** Modify `weather.go` (add `sendLine`, `cmdWeather`, and helpers).
 
-- [ ] **Step 1: Add the command + helpers to `weather.go`**
+> **`sendLine` is the single upstream-vs-DOGMud divergence point.** Upstream GoMud: `user.SendText(text)`. DOGMud backport: change this one function to `user.SendText(messaging.CategorySystem, text)` and add the `internal/messaging` import. Nothing else in the module calls `SendText`.
 
-Add these imports to `weather.go`'s import block: `"fmt"`, `"sort"`, `"strings"`, `"github.com/GoMudEngine/GoMud/internal/events"`, `"github.com/GoMudEngine/GoMud/internal/messaging"`, `"github.com/GoMudEngine/GoMud/internal/rooms"`, `"github.com/GoMudEngine/GoMud/internal/users"`. Then append:
+- [ ] **Step 1: Add `sendLine`, the command, and helpers to `weather.go`**
+
+Add these imports to `weather.go`'s import block: `"fmt"`, `"sort"`, `"strings"`, `"github.com/GoMudEngine/GoMud/internal/rooms"`, `"github.com/GoMudEngine/GoMud/internal/users"`. (`events` is already imported from Task 6.) Then append:
 
 ```go
+// sendLine writes one line to a user. It is the ONLY place this module calls
+// the engine's SendText, isolating the one upstream-vs-DOGMud divergence:
+// upstream GoMud uses SendText(text); the DOGMud fork uses SendText(category,
+// text). Backporting to DOGMud is a one-line change here (add a messaging
+// category argument + the internal/messaging import).
+func sendLine(user *users.UserRecord, text string) {
+	user.SendText(text)
+}
+
 // cmdWeather is the admin command. Subcommands:
 //   weather                -> graph summary
-//   weather graph [zone]   -> neighbors of a zone (default: caller's zone)
+//   weather graph [zone]   -> neighbors of a zone (default: the caller's zone)
 //   weather rebuild        -> re-crawl the world and rewrite the cache
 func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *rooms.Room, flags events.EventFlag) (bool, error) {
 	args := strings.Fields(rest)
@@ -610,16 +653,16 @@ func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *ro
 	case "rebuild":
 		m.rebuildGraph()
 		if m.graph == nil {
-			user.SendText(messaging.CategorySystem, "Weather: graph rebuild failed (see server log).")
+			sendLine(user, "Weather: graph rebuild failed (see server log).")
 			return true, nil
 		}
-		user.SendText(messaging.CategorySystem, fmt.Sprintf(
+		sendLine(user, fmt.Sprintf(
 			"Weather: rebuilt graph — %d zones, %d edges, %d components.",
 			len(m.graph.Nodes), len(m.graph.Edges), m.graph.Components))
 	case "graph":
 		zone := strings.TrimSpace(rest[len(args[0]):])
-		if zone == "" {
-			zone = user.Character.Zone
+		if zone == "" && room != nil {
+			zone = room.Zone
 		}
 		m.printGraphForZone(user, zone)
 	default:
@@ -630,36 +673,36 @@ func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *ro
 
 func (m *weatherModule) printSummary(user *users.UserRecord) {
 	if m.graph == nil {
-		user.SendText(messaging.CategorySystem, "Weather: no geography graph yet. Run 'weather rebuild'.")
+		sendLine(user, "Weather: no geography graph yet (built on the first round). Try 'weather rebuild'.")
 		return
 	}
 	g := m.graph
-	user.SendText(messaging.CategorySystem, fmt.Sprintf(
+	sendLine(user, fmt.Sprintf(
 		"Weather geography: %d zones, %d edges, %d components (built round %d).",
 		len(g.Nodes), len(g.Edges), g.Components, g.BuiltAtRound))
 }
 
 func (m *weatherModule) printGraphForZone(user *users.UserRecord, zone string) {
 	if m.graph == nil {
-		user.SendText(messaging.CategorySystem, "Weather: no geography graph yet. Run 'weather rebuild'.")
+		sendLine(user, "Weather: no geography graph yet (built on the first round). Try 'weather rebuild'.")
 		return
 	}
 	node, ok := m.graph.Nodes[zone]
 	if !ok {
-		user.SendText(messaging.CategorySystem, fmt.Sprintf("Weather: zone %q is not in the graph.", zone))
+		sendLine(user, fmt.Sprintf("Weather: zone %q is not in the graph.", zone))
 		return
 	}
-	user.SendText(messaging.CategorySystem, fmt.Sprintf(
+	sendLine(user, fmt.Sprintf(
 		"Zone %s [biome=%s rooms=%d outdoor=%v]:", node.Zone, node.Biome, node.Rooms, node.HasOutdoor))
 
 	neighbors := m.graph.Neighbors(zone)
 	if len(neighbors) == 0 {
-		user.SendText(messaging.CategorySystem, "  (no adjacent zones)")
+		sendLine(user, "  (no adjacent zones)")
 		return
 	}
 	sort.Slice(neighbors, func(i, j int) bool { return neighbors[i].B < neighbors[j].B })
 	for _, e := range neighbors {
-		user.SendText(messaging.CategorySystem, fmt.Sprintf("  -> %s (weight %d)", e.B, e.Weight))
+		sendLine(user, fmt.Sprintf("  -> %s (weight %d)", e.B, e.Weight))
 	}
 }
 ```
@@ -677,26 +720,26 @@ Expected: build succeeds; all module tests pass; vet clean.
 
 ```bash
 git add weather.go
-git commit -m "feat(weather): admin 'weather' command (summary/graph/rebuild)"
+git commit -m "feat(weather): admin 'weather' command (summary/graph/rebuild) + sendLine seam"
 ```
 
 ---
 
-## Task 8: Smoke test, docs, and spec reconciliation
+## Task 8: Smoke test, docs, backport note, and spec reconciliation
 
-**Files:** Create `engine/context.md`; modify `README.md`, `docs/superpowers/specs/2026-06-08-weather-module-design.md`.
+**Files:** Create `engine/context.md`; modify `README.md`, `CONTRIBUTING.md`, `docs/superpowers/specs/2026-06-08-weather-module-design.md`.
 
-- [ ] **Step 1: Manual smoke test in the DOGMud checkout**
+- [ ] **Step 1: Manual smoke test in the upstream GoMud checkout**
 
-Sync, then in `C:\Users\Calabe Davis\workspace\DOGMud`: `go generate ./... && go build` and start the server. Log in as an **admin** character and verify:
+Sync, then in `C:\Users\Calabe Davis\workspace\GoMud`: `go generate ./... && go build` and start the server. Log in as an **admin** character and verify (allow a few seconds for the first round to fire the build):
 
-1. `weather` → prints `Weather geography: N zones, M edges, K components (built round R).` (N > 0 on the default world).
-2. `weather graph` → prints the current zone's biome/rooms/outdoor line and its adjacent zones with weights (or `(no adjacent zones)`).
-3. `weather graph <someZone>` → prints that zone's neighbors; an unknown zone prints the "not in the graph" message.
-4. `weather rebuild` → prints the rebuilt summary.
-5. Confirm the cache file exists on disk: a file matching `*weather-v0-1-0*/geography.plugin.dat` under the engine's plugin write folder (search the checkout's data/write directory). Restart the server and confirm the log shows `loaded geography cache` (not a rebuild), proving persistence + load.
+1. `weather` → `Weather geography: N zones, M edges, K components (built round R).` (N > 0 on the default world).
+2. `weather graph` → the current zone's biome/rooms/outdoor line plus adjacent zones with weights (or `(no adjacent zones)`).
+3. `weather graph <someZone>` → that zone's neighbors; an unknown zone prints the "not in the graph" message.
+4. `weather rebuild` → the rebuilt summary line.
+5. Confirm the cache file exists: a file matching `*weather-v0-1-0*/geography.plugin.dat` under the engine's plugin write folder. Restart the server; the log should show `Weather: loaded geography cache` (not a rebuild), proving persistence + load.
 
-Record the observed `weather` summary output in the commit message or PR notes. If any step misbehaves, STOP and report.
+Record the observed `weather` summary in the commit/PR notes. If any step misbehaves, STOP and report.
 
 - [ ] **Step 2: Create `engine/context.md`**
 
@@ -731,8 +774,8 @@ and portable across GoMud and DOGMud.
 ## Testing
 - `cache_test.go` covers `DecodeCache` (pure). `worldreader_test.go` covers
   `isOutdoorBiome`. The `WorldReader` engine methods are thin glue verified by
-  the module's boot-time build and the `weather` command smoke test. These tests
-  compile only inside a GoMud/DOGMud checkout (engine imports).
+  the module's first-round build and the `weather` command smoke test. These
+  tests compile only inside a GoMud checkout (engine imports).
 
 ## Build note
 This package compiles only inside a checkout (it imports `internal/*`). In the
@@ -741,59 +784,81 @@ standalone repo, test the pure core with `go test ./sim/... ./crawler/...`.
 
 - [ ] **Step 3: Update `README.md` Status + Development sections**
 
-In `README.md`, set the `## Status` block to reflect M1b and add the checkout workflow. Replace the current Status body with:
+Set the `## Status` block body to:
 
 ```
 **M1b complete — crawler runs against a live world.** On top of the pure core
-(`sim/`, `crawler/`), the `engine/` adapter reads the live world, the module
-builds a geography graph on boot, caches it to disk, and exposes an admin
-`weather` command (summary / `graph [zone]` / `rebuild`). Next: M2 (weather
-simulation core).
+(`sim/`, `crawler/`), the `engine/` adapter reads the live GoMud world, the
+module builds a geography graph on the first round, caches it to disk, and
+exposes an admin `weather` command (summary / `graph [zone]` / `rebuild`).
+Built for upstream GoMud; the only DOGMud backport delta is the one-line
+`sendLine` helper. Next: M2 (weather simulation core).
 ```
 
-And replace the `## Development` body with:
+Replace the `## Development` body with:
 
 ```
 The pure core (`sim/`, `crawler/`) is tested standalone in this repo:
 `go test ./sim/... ./crawler/...` (note: NOT `./...`, which now includes the
 engine-coupled packages). The `engine/` and root `weather` packages import the
-GoMud engine and compile only inside a checkout. To build/test them, sync the
-module into a checkout and build there:
+GoMud engine and compile only inside an upstream GoMud checkout. To build/test
+them, sync the module into a checkout and build there:
 
-    pwsh scripts/sync-to-checkout.ps1 -Checkout <path-to-GoMud-or-DOGMud>
+    pwsh scripts/sync-to-checkout.ps1 -Checkout <path-to-GoMud-checkout>
     # then, in the checkout:
     go generate ./... && go build && go test ./modules/weather/...
 
 The sync excludes this repo's `go.mod` (in-checkout modules have none). See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the module/engine boundary.
+[CONTRIBUTING.md](CONTRIBUTING.md) for the module/engine boundary and the
+DOGMud backport delta.
 ```
 
-- [ ] **Step 4: Fix the stale spec wording (M1a review follow-up #5/#6)**
+- [ ] **Step 4: Document the DOGMud backport delta in `CONTRIBUTING.md`**
+
+Append a short subsection under the architecture rules:
+
+```
+### DOGMud backport delta
+
+This module is built for upstream GoMud. The only API that differs in the
+DOGMud fork is `users.UserRecord.SendText`: upstream takes `(text string)`;
+DOGMud takes `(category messaging.MessageCategory, text string)`. All module
+output goes through the single `sendLine` helper in `weather.go`, so backporting
+to DOGMud is a one-line change: `user.SendText(messaging.CategorySystem, text)`
+plus the `internal/messaging` import. If a future change adds another
+engine-divergent call, isolate it behind a similar helper rather than scattering
+it.
+```
+
+- [ ] **Step 5: Fix the stale spec wording (M1a review follow-up) + add status**
 
 In `docs/superpowers/specs/2026-06-08-weather-module-design.md`:
-- In §4.2's directory-layout block, the `crawler/` comment currently reads "Imports the engine adapter, not sim." Change it to: `# geography crawler (zone adjacency) — pure; consumes a WorldReader, imports sim`.
-- In the same block, ensure the `engine/` line notes it implements `crawler.WorldReader` (it already says it's the only package importing the engine).
-- If §14 (Testing) repeats "crawler imports the engine adapter," correct it to state the crawler is pure and the engine-backed `WorldReader` lives in `engine/`.
-- Append to §6.5: `> **Status (2026-06-09, M1b):** engine-backed WorldReader, versioned cache persistence, boot-time build, and the `weather` admin command (summary/graph/rebuild) are implemented and smoke-tested in a DOGMud checkout. §6 is now complete.`
+- In §4.2's directory-layout block, change the `crawler/` comment "Imports the engine adapter, not sim." to: `# geography crawler (zone adjacency) — pure; consumes a WorldReader, imports sim`.
+- If §14 (Testing) repeats "crawler imports the engine adapter," correct it: the crawler is pure; the engine-backed `WorldReader` lives in `engine/`.
+- Append to §6.5: `> **Status (2026-06-09, M1b):** engine-backed WorldReader, versioned cache persistence, first-round build, and the `weather` admin command (summary/graph/rebuild) are implemented and smoke-tested in an upstream GoMud checkout. §6 is complete. The only DOGMud backport delta is the one-line sendLine helper.`
 
-- [ ] **Step 5: Run pure tests in the repo, then commit**
+- [ ] **Step 6: Run pure tests in the repo, then commit**
 
 Run (repo): `go test ./sim/... ./crawler/...`
 Expected: PASS.
 
 ```bash
-git add engine/context.md README.md docs/superpowers/specs/2026-06-08-weather-module-design.md
-git commit -m "docs(engine): add engine context.md; reconcile README/spec for M1b"
+git add engine/context.md README.md CONTRIBUTING.md docs/superpowers/specs/2026-06-08-weather-module-design.md
+git commit -m "docs(engine): add engine context.md; reconcile README/spec; document DOGMud backport delta"
 ```
 
 ---
 
 ## Self-Review Notes (author)
 
-**Spec coverage (§6 remainder):** engine-backed traversal (§6.2 via `engine.WorldReader` over `LoadRoom`/`GetAllZone*`) → Task 4; biome/outdoor metadata source → Task 4 (`isOutdoorBiome`); cost/timing — boot crawl + cache, rebuild on demand (§6.3) → Tasks 6/7; cache format read/write + version check (§6.4) → Tasks 3/6; `weather graph` spot-check (§6.5 acceptance) → Task 7; deterministic/no-RNG and standalone-testable core already done in M1a. M1a follow-ups (crawler purity test, FromJSON error test, version-check consumer, spec wording) → Tasks 1/3/8.
+**Upstream-first verification:** every engine API was checked against upstream GoMud `master` (see the CRITICAL section's verification list), not just the local DOGMud fork. The sole divergence (`SendText`) is isolated in `sendLine` (Task 7) and documented as the DOGMud backport delta (Task 8 Step 4). Build/test target is an upstream GoMud checkout (Task 2), not DOGMud.
 
-**Type/name consistency:** `engine.CacheIdentifier`/`engine.DecodeCache`/`engine.NewWorldReader` are defined in Tasks 3–4 and consumed in Task 6. `crawler.DefaultOptions`/`Build`/`WorldReader`/`RoomView`/`ExitView` and `sim.Graph`/`Neighbors`/`FromJSON`/`GraphVersion`/`ToJSON` match the M1a APIs exactly. `Config`/`buildConfig`/`loadConfig` (Task 5) are used by `onLoad` (Task 6). The command handler signature matches the engine's `usercommands.UserCommand` (`func(string, *users.UserRecord, *rooms.Room, events.EventFlag) (bool, error)`), verified against `modules/playtest/commands.go`.
+**Spec coverage (§6 remainder):** engine-backed traversal (§6.2 via `engine.WorldReader` over `LoadRoom`/`GetAllZone*`) → Task 4; biome/outdoor metadata source → Task 4 (`isOutdoorBiome`); cost/timing — first-round crawl + cache, rebuild on demand (§6.3) → Tasks 6/7; cache read/write + version check (§6.4) → Tasks 3/6; `weather graph` spot-check (§6.5) → Task 7. M1a follow-ups (crawler purity test, FromJSON error test, version-check consumer, spec wording) → Tasks 1/3/8.
 
-**Placeholders:** none — every step has complete code or an exact command + expected result. Tasks 6/7 are wiring with no unit test by design; their gate is the checkout build plus the Task 8 smoke test (explicit, with observable expectations), not a hand-waved "test it."
+**Type/name consistency:** `engine.CacheIdentifier`/`DecodeCache`/`NewWorldReader` (Tasks 3–4) are consumed in Task 6. `crawler.DefaultOptions/Build/WorldReader/RoomView/ExitView` and `sim.Graph/Neighbors/FromJSON/GraphVersion/ToJSON` match the M1a APIs. `Config`/`buildConfig`/`loadConfig` (Task 5) feed `onLoad` (Task 6). The command handler matches `usercommands.UserCommand` exactly (verified upstream). Default zone uses `room.Zone` (handler-provided, nil-guarded), not `user.Character.Zone`.
 
-**Known sharp edges (called out in-plan, not hidden):** (1) Task 6 alone won't compile until Task 7 adds `cmdWeather` — flagged; do 6+7 together for a green build. (2) Once `engine/` exists, repo `go test ./...` breaks; the repo command is `go test ./sim/... ./crawler/...` — flagged in the CRITICAL section, README, and Task 1/8. (3) `Outdoor` is a biome heuristic (no engine flag exists); documented as such and deferred-configurable to M3.
+**Placeholders:** none — every step has complete code or an exact command + expected result.
+
+**Known sharp edges (in-plan, not hidden):** (1) Task 6 alone won't compile until Task 7 adds `cmdWeather` — flagged; do 6+7 together. (2) Once `engine/` exists, repo `go test ./...` breaks; the repo command is `go test ./sim/... ./crawler/...` — flagged in CRITICAL, README, Tasks 1/8. (3) `Outdoor` is a biome heuristic (no engine flag); documented, deferred-configurable to M3. (4) Graph build is deferred to the first `NewRound` (not `onLoad`) because upstream `onLoad` timing vs world-load is unconfirmed and `follow` establishes the `NewRound` precedent.
+
+**Note for M2/M3:** the spec's mutator/`ZoneConfig` assumptions (used by weather application, not M1b) were verified against DOGMud earlier — re-verify them against upstream GoMud before the M3 plan (mutator `MutatorSpec` fields, `ZoneConfig.Mutators`, `NewRound_UpdateZoneMutators`).
