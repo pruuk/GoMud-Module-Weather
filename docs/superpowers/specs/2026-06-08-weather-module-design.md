@@ -175,7 +175,7 @@ modules/weather/
 │       ├── climate/      # climate profiles per biome (module-owned data)
 │       ├── weather/      # weather type definitions
 │       ├── mutators/     # weather mutator specs (engine MutatorSpec schema)
-│       ├── buffs/        # curated default buff specs (optional, toggle-able)
+│       ├── buffs/        # bespoke buff specs — only if module buff overlays land upstream (§5.6); v1 reuses existing engine buff ids
 │       └── emotes/       # ambient emote tables
 └── README.md
 ```
@@ -256,7 +256,8 @@ These are the concrete APIs the `engine/` adapter binds to. Verified in the DOGM
 | Enumerate zones/rooms/biomes/exits | `GetAllZoneNames`, `GetAllZoneRoomsIds`, `GetZoneBiome`, `Room.Exits` | **Yes.** | No core change. |
 | Coarse clock + calendar date | `events.NewRound`, `events.DayNightCycle`, `gametime.GetDate` | **Yes.** | No core change. |
 | Mutator carries buffs / light / chain / decay | `MutatorSpec.{PlayerBuffIds,LightMod,DecayIntoId,DecayRate,RespawnRate}` | **Yes** (verified in source). | No core change. |
-| Ship mutator + buff + custom data via module | data-overlay merge (`files/datafiles/`) | **Yes** (how all modules ship data). | No core change — **verify** buff-spec overlay during M3 (R-core-1). |
+| Ship **mutator** + custom data via module | data-overlay merge (`files/datafiles/`) | **Yes** (how all modules ship data). | No core change. |
+| Ship **buff specs** via module overlay | data-overlay merge | **No** (confirmed by engine author, 2026-06-08) | v1 needs **no core change** — reuse existing buff ids (fallback a). Module-supplied buffs are an optional upstream contingency (R-core-1). |
 | Persist module state | `plugin.WriteBytes/ReadBytes` | **Yes.** | No core change. |
 | Expose API to other modules/JS | `plugin.ExportFunction` | **Yes.** | No core change. |
 | Registry entry (`module install weather`) | registry listing | Process, not engine code | **One-time onboarding** with maintainers (§13.3). |
@@ -264,11 +265,14 @@ These are the concrete APIs the `engine/` adapter binds to. Verified in the DOGM
 **Bottom line: v1 requires no changes to the GoMud engine.** The only maintainer-side step is the one-time registry onboarding.
 
 #### Verification items (could, if they surprise us, become a small upstream PR)
-- **R-core-1 — buff-spec overlay merge.** Confirm a module can ship `BuffSpec`s via `files/datafiles/` and have them register in the global buff table at load (mutators ship this way; buffs are expected to as well). Fallbacks in priority order: **(a)** map default weather effects onto *existing* engine buff ids and ship only mutators (no core change); **(b)** propose a tiny, backward-compatible upstream change to include module buff overlays. We design so **(a) is always viable**, so this can never block shipping — and fallback (a) is already *concretely* available: the default world's weather mutators reference real buff ids (**31 Freezing**, **33 Thirsty**, **22 wildfire burn**) that our curated defaults can reuse directly (see §9.1, *Prior art*).
+- **R-core-1 — buff-spec overlay merge.** **Resolved (engine author, 2026-06-08): modules cannot currently ship their own `BuffSpec`s via the data overlay** — but Volte6 considers it "easy enough to add." Our plan:
+  - **v1 ships on fallback (a), no core change:** map curated default weather effects onto *existing* engine buff ids. This is concretely available today — the default world's weather mutators already reference real buff ids (**31 Freezing**, **33 Thirsty**, **22 wildfire burn**) we can reuse directly (see §9.1, *Prior art*). So R-core-1 **can never block shipping**.
+  - **Contingency (b), upstream, author-receptive:** add module-supplied buff overlays to the engine. If/when this lands, our richer/bespoke weather buffs move from "reuse existing ids" to "ship our own," with no change to the module's architecture (buffs are referenced by id from mutators either way). **Important caveat surfaced by the author:** numeric ids for items/buffs already risk collisions between the engine and modules. So a module-buff-overlay feature should ideally arrive with an **id-namespacing/allocation scheme** (e.g. reserved ranges or string-keyed ids for module content) rather than raw integers — this is a broader engine concern we'd want coordinated, not a weather-only patch. The module is designed so we benefit from such a scheme if it appears but depend on none of it.
 - **R-core-2 — runtime room refresh.** Confirm that when weather changes for a room a player occupies, the next render reflects it acceptably (evidence: live merge at render says yes). If a *push* refresh is ever wanted, emit an existing event rather than change the engine.
 
 #### Optional upstream contributions (explicitly NOT v1 requirements)
 Ideas we might *offer* the maintainer later as additive, backward-compatible engine niceties — never blockers, all decoupled behind the `engine/` adapter so adopting one is a local swap:
+- **Module-supplied buff overlays** (R-core-1) — the author is receptive. Lets us ship bespoke weather buffs instead of reusing existing ids. Best paired with an **id-namespacing/allocation scheme** for module content (the author's noted collision concern); we'd advocate that be part of the change.
 - A first-class `WeatherChanged` event in `internal/events` (until then: a module-defined event + `ExportFunction`).
 - Climate fields on `BiomeInfo` so biomes can *suggest* weather natively (we keep climate as module data regardless).
 - A weather GMCP package in the `gmcp` module (a module-to-module contribution, not an engine change).
@@ -525,13 +529,10 @@ indoor:
 ```
 
 ### 9.5 Curated default buffs
-- Shipped in `files/datafiles/buffs/` (engine buff schema), referenced by id from weather mutators.
-- Default set is intentionally small and gentle, e.g.:
-  - **Drenched** (rain/storm): minor movement & ranged-accuracy penalty.
-  - **Blinded by snow** (blizzard): reduced perception/sight range.
-  - **Chilled** (blizzard/cold): small periodic stamina drain.
-  - **Sweltering** (heatwave): faster stamina drain on exertion.
-- Every default is **toggle-able** (`Buffs.Enabled`, and per-type overrides). Worlds can point a weather type at their own buff ids instead. We ship *defaults*, not *opinions*.
+- **v1 references *existing* engine buff ids** from weather mutators (e.g. 31 Freezing, 33 Thirsty, 22 burn) — modules cannot yet ship their own buff specs via overlay (§5.6, R-core-1), and reusing existing ids needs no core change and risks no id collisions. The default set is mapped to the closest existing buffs.
+- Conceptually the default set is intentionally small and gentle — e.g. cold weather → a chill/freeze effect, storms → an exposure/soaked penalty, heat → thirst. The exact mapping to engine buff ids is finalized in M3 once we audit the available buffs.
+- **If/when module buff overlays land upstream** (§5.6 contingency), bespoke weather buffs (`files/datafiles/buffs/`) drop in by id with no architectural change.
+- Every default is **toggle-able** (`Buffs.Enabled`, plus `Buffs.Overrides` mapping each weather type to a world's own buff ids). We ship *defaults*, not *opinions*.
 
 ### 9.6 Admin & observability commands
 - `weather` — current weather where you stand + the front (if any) affecting your zone.
