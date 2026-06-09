@@ -6,6 +6,7 @@
 - **Module name:** `weather` (registry id), compiled in under `modules/weather/`
 - **Authors:** Calabe Davis + GoMud community
 - **Companion lineage:** Built in the same spirit as the [GoMud Module Playtest Harness](https://github.com/GoMudEngine/GoMud-Module-Playtest-Harness) — engine-native, compiled-in, data-driven, testable in isolation.
+- **Engine-author input:** Incorporates early guidance from Volte6 (GoMud) on tick scheduling via the `gametime` package and on the existing default-world weather mutators we build on (see §5.5, §9.1, §9.3).
 
 ---
 
@@ -230,8 +231,9 @@ These are the concrete APIs the `engine/` adapter binds to. Verified in the DOGM
 - `MutatorList` methods: `Add(name) bool`, `Remove(name) bool`, `Has(name) bool`, `GetActive()`, `Update(roundNow)`.
 - `RespawnRate` supports **sun-relative** timing (`sunrise`/`sunset`/`noon`/`midnight`) — useful for diurnal weather and the season seam.
 
-### 5.5 Game time (`internal/gametime`)
+### 5.5 Game time & scheduling (`internal/gametime`, `internal/util`)
 - `gametime.GetDate() GameDate` (`gametime.go:144`) → `{Day, Month, Year, Night, ...}`; `gametime.MonthName(month)` (`months.go:20`) — the **season clock** (v2) derives from `Month`.
+- **Scheduling primitives (per engine-author guidance — see §9.3):** `GameDate.AddPeriod(periodStr string) uint64` (`gametime.go:277`) returns the **round number** at which a period from now elapses; `GameDate.Add(hours, days, years) GameDate` (`:237`); `GetLastPeriod(name, round) uint64` (`:470`); `util.GetRoundCount() uint64` (`util.go:123`). These let us schedule the next weather tick as a target round rather than counting rounds by hand.
 
 > **Divergence note:** An earlier `internal/mutators/context.md` summary described a *different* `MutatorSpec` (with `TextModifiers map`, `SpawnChance`, `Requirements`, no buffs). The **actual code** has the richer struct above. Trust source over summaries; the adapter pins us to the real API.
 
@@ -262,7 +264,7 @@ These are the concrete APIs the `engine/` adapter binds to. Verified in the DOGM
 **Bottom line: v1 requires no changes to the GoMud engine.** The only maintainer-side step is the one-time registry onboarding.
 
 #### Verification items (could, if they surprise us, become a small upstream PR)
-- **R-core-1 — buff-spec overlay merge.** Confirm a module can ship `BuffSpec`s via `files/datafiles/` and have them register in the global buff table at load (mutators ship this way; buffs are expected to as well). Fallbacks in priority order: **(a)** map default weather effects onto *existing* engine buff ids and ship only mutators (no core change); **(b)** propose a tiny, backward-compatible upstream change to include module buff overlays. We design so **(a) is always viable**, so this can never block shipping.
+- **R-core-1 — buff-spec overlay merge.** Confirm a module can ship `BuffSpec`s via `files/datafiles/` and have them register in the global buff table at load (mutators ship this way; buffs are expected to as well). Fallbacks in priority order: **(a)** map default weather effects onto *existing* engine buff ids and ship only mutators (no core change); **(b)** propose a tiny, backward-compatible upstream change to include module buff overlays. We design so **(a) is always viable**, so this can never block shipping — and fallback (a) is already *concretely* available: the default world's weather mutators reference real buff ids (**31 Freezing**, **33 Thirsty**, **22 wildfire burn**) that our curated defaults can reuse directly (see §9.1, *Prior art*).
 - **R-core-2 — runtime room refresh.** Confirm that when weather changes for a room a player occupies, the next render reflects it acceptably (evidence: live merge at render says yes). If a *push* refresh is ever wanted, emit an existing event rather than change the engine.
 
 #### Optional upstream contributions (explicitly NOT v1 requirements)
@@ -446,32 +448,53 @@ Each `(weatherType)` maps to one or more **weather mutator specs** shipped in `f
 
 - **Primary: zone-wide.** For a changed zone, `GetZoneConfig(zone).Mutators.Remove(oldWeatherMutator)` then `.Add(newWeatherMutator)`. One call paints the whole zone (engine merges zone mutators into every room at render time, `rooms.go:2566`).
 - **Refinement: per-room variants where it matters.** Indoor rooms and biome-divergent rooms within a zone get a variant mutator so an *indoor* room reads "rain drums on the roof overhead" instead of "rain falls around you," and a cave inside a forest zone isn't rained on. Strategy:
-  - Mutator naming convention: `weather_<type>` (zone default, outdoor) and `weather_<type>_indoor` (indoor variant).
+  - Mutator naming convention follows the engine's existing style — lowercase, hyphenated ids (the default world uses `forest-mist`, `desert-sun`, `freezing-cold`). Ours are namespaced: `weather-<type>` (zone default, outdoor) and `weather-<type>-indoor` (indoor variant).
   - The applier consults `room.GetBiome()` / an indoor flag and applies the variant only to rooms that diverge from the zone default. To bound cost, **per-room refinement is applied lazily** — only to rooms in zones that currently contain players (`GetRoomsWithPlayers()`); unoccupied rooms inherit the zone-wide mutator and are refined on entry. (Configurable: `PerRoomRefinement: occupied|all|off`.)
 
-Example weather mutator spec (`files/datafiles/mutators/weather_storm.yaml`) — real `MutatorSpec` schema:
+**Prior art — the engine already ships weather-style mutators.** The default world includes `forest-mist`, `freezing-cold`, `desert-sun`, and `wildfire` mutators (in `_datafiles/world/default/mutators/`, surfaced by the engine author). They establish the exact conventions we follow and prove the pattern end-to-end:
+- `namemodifier` *append* a short parenthetical tag (`(misty)`, `(scorching)`, `(freezing)`) with a `colorpattern`.
+- `descriptionmodifier` *append* a sentence of flavor.
+- `alertmodifier` is **append-only** (no prepend/replace) — used for the loud "!!! a wildfire is burning here !!!" banner.
+- Sun-relative `respawnrate`/`decayrate` (`midnight`→`sunrise`, `noon`→`sunset`) for the *static, diurnal* effects those ship with.
+- Real, reusable buff ids already exist: **31 Freezing**, **33 Thirsty**, **22 (wildfire burn)**.
+
+The crucial difference: those defaults are *static and diurnal* (they respawn/decay on the clock, in place). **Ours are orchestrator-driven and traveling** — the weather engine adds/removes them as fronts move, so our specs set **no `respawnrate`** (we don't want auto-respawn fighting the orchestrator) and use `decayrate` purely as a self-heal safety net (§9.2). We can directly reuse the existing buff ids for our curated defaults, which is exactly the no-core-change buff path in §5.6 (R-core-1, fallback a).
+
+Example weather mutator spec (`files/datafiles/mutators/weather-storm.yaml`) — real `MutatorSpec` schema, matching engine conventions:
 
 ```yaml
-mutatorid: weather_storm
+mutatorid: weather-storm
+namemodifier:
+  behavior: append
+  text: (storm-wracked)
+  colorpattern: storm
 descriptionmodifier:
   behavior: append
-  text: "\nRain lashes down and thunder rolls across the sky."
+  text: Rain lashes down and thunder rolls across the sky.
   colorpattern: storm
-alertmodifier:
-  behavior: append
-  text: "A storm rages here."
-lightmod: -1               # storms darken the area
-playerbuffids: [ 9101 ]    # curated default: "Drenched" — minor move/accuracy penalty (toggle-able)
-mobbuffids:    [ 9101 ]
-decayrate: "6 hours"       # SAFETY NET: self-clears if the orchestrator ever misses removal
-decayintoid: weather_overcast   # graceful fade rather than a hard cut
+alertmodifier:                 # append-only by engine design
+  text: A storm rages overhead.
+  colorpattern: storm
+lightmod: -1                   # storms darken the area
+playerbuffids: [ 33 ]          # reuse an existing engine buff for v1 (e.g. exposure); override-able
+mobbuffids:    [ 33 ]
+decayrate: 6 hours             # SAFETY NET only — orchestrator normally removes it first; no respawnrate
+decayintoid: weather-overcast  # graceful fade rather than a hard cut
 ```
 
 ### 9.2 Why mutator self-decay is a safety net, not the engine
 The orchestrator is authoritative: it adds/removes weather mutators as fronts move. But we *also* set `DecayRate`/`DecayIntoId` so that if the module is disabled mid-run, crashes, or misses a cleanup, rooms **heal themselves** to a calm state instead of being stuck in an eternal storm. Defense in depth.
 
 ### 9.3 The weather clock (cadence)
-- Weather ticks are **coarse** — they must not fire every combat round. Default: **once per in-game hour** (configurable `TickEveryGameHours`, default `1`), derived from `DayNightCycle`/`NewRound` + `gametime.GetDate()`.
+- Weather ticks are **coarse** — they must not fire every combat round. Default: **once per in-game hour** (configurable `TickEveryGameHours`, default `1`).
+- **Scheduling (per engine-author guidance).** Rather than hand-counting rounds, we schedule the next tick as a **target round number** using the `gametime` API, then on each `NewRound` simply check whether we've reached it:
+  ```go
+  // schedule the next weather tick
+  next := gametime.GetDate().AddPeriod("1 hour")   // -> round number, uint64
+  // each NewRound:
+  if util.GetRoundCount() >= next { tick(); next = gametime.GetDate().AddPeriod("1 hour") }
+  ```
+  To align ticks to the **top of the hour** (optional, trickier): seed from `GetLastPeriod("hour", util.GetRoundCount())` and `.Add(0, 1, 0)`. The cadence string is configurable so `TickEveryGameHours` maps straight onto `AddPeriod`.
 - Rationale: fronts moving zone-to-zone every game-hour gives weather that visibly changes over a play session without thrashing mutators or spamming players.
 - The faster **emote** cadence is separate (9.4).
 
