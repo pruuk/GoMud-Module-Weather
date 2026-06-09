@@ -23,7 +23,9 @@
 - **The Graph is the world view.** `Step` takes `*sim.Graph` directly (it already exposes `Nodes[zone].Biome`, `Nodes[zone].HasOutdoor`, and `Neighbors(zone)`). No separate `WorldView` interface (a deliberate simplification of spec §7.1 — the Graph already IS the pure world representation).
 - **RNG in State.** The PRNG cursor is a `uint64` field of `State`; `Step` builds an `RNG` from it and writes the advanced cursor back into the next `State`. Same cursor → same sequence.
 - **Type evolution is data-driven** (re-roll from the destination zone's climate weights, biased to keep the current type), not a hardcoded transition table.
+- **Intensity-scaled area coverage.** A front travels as a single center token but *covers an area* when resolving weather: it projects onto zones within `MaxFrontRadius` graph-hops with `effective intensity = Intensity × CoverageFalloff^hops`, covering a zone only while that stays `>= MinProjected`. So a strong storm blankets a wide ring of zones at once while a weak one barely covers its own zone — exactly "stronger storms spread further." Per zone, the front with the highest *effective* intensity wins. This lives entirely in `resolveWeather`; front travel/lifecycle are unchanged.
 - **Frontless zones resolve to `Clear`** in M2 (a calm baseline). The "occasional light fog/overcast in calm zones" enrichment from §7.5 step 6 is deferred (noted in `context.md`).
+- **Prevailing-wind direction is a LATER chunk** (a MUD owner setting the general direction storms originate/move, e.g. west→east). It needs directional metadata on graph edges, which a future crawler pass can derive from each exit's `MapDirection`. M2 movement is edge-weight + resistance + no-backtrack only.
 
 ## File Structure
 
@@ -36,7 +38,7 @@
 | `sim/climate.go` | `WeatherInfluence`, `ClimateProfile`, `Climate`, `Climate.For`, `DefaultClimate`; `Config`, `DefaultConfig`. |
 | `sim/climate_test.go` | Climate lookup/fallback + DefaultConfig tests. |
 | `sim/graph.go` (modify) | Add `(*Graph) Zones() []string` (sorted) convenience accessor. |
-| `sim/tick.go` | `Step` + helpers: `ageAndFeedback`, `removeDead`, `moveFronts`, `evolveType`, `spawnFronts`, `resolveWeather`, `diffWeather`, weighted-pick helpers. |
+| `sim/tick.go` | `Step` + helpers: `ageAndFeedback`, `moveFronts`, `evolveTypes`, `removeDead`, `spawnFronts`, `resolveWeather` (intensity-scaled area coverage), `zonesWithin` (BFS), `pow`, `diffWeather`, weighted-pick helpers. |
 | `sim/tick_test.go` | Per-behavior tests + golden-trace + storm-over-mountain feedback. |
 | `sim/state.go` | `State.ToJSON` / `StateFromJSON` (persistence codec, incl. RNG cursor). |
 | `sim/state_test.go` | State JSON round-trip. |
@@ -303,6 +305,15 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.SpawnChance < 0 || cfg.SpawnChance > 1 {
 		t.Error("SpawnChance must be in [0,1]")
 	}
+	if cfg.CoverageFalloff <= 0 || cfg.CoverageFalloff > 1 {
+		t.Error("CoverageFalloff must be in (0,1]")
+	}
+	if cfg.MinProjected <= 0 || cfg.MinProjected > 1 {
+		t.Error("MinProjected must be in (0,1]")
+	}
+	if cfg.MaxFrontRadius < 0 {
+		t.Error("MaxFrontRadius must be >= 0")
+	}
 }
 ```
 
@@ -351,6 +362,14 @@ type Config struct {
 	SpawnChance     float64 // per-tick chance to spawn when under budget (0..1)
 	HistoryLen      int     // bounded front path length (no-backtrack window)
 	FrontHardAge    int     // hard age cap; older fronts die regardless
+
+	// Area coverage: a front projects onto zones within MaxFrontRadius hops of
+	// its center; the intensity it projects falls off by CoverageFalloff per hop,
+	// and a zone is only covered while the projected value stays >= MinProjected.
+	// Net effect: stronger fronts naturally cover a larger area.
+	CoverageFalloff float64 // 0..1 multiplier per hop (e.g. 0.5 = halve each hop)
+	MinProjected    float64 // minimum projected intensity for a zone to be covered
+	MaxFrontRadius  int     // hard cap on coverage radius (hops)
 }
 
 // DefaultConfig returns sensible simulation defaults.
@@ -360,6 +379,9 @@ func DefaultConfig() Config {
 		SpawnChance:     0.25,
 		HistoryLen:      4,
 		FrontHardAge:    48,
+		CoverageFalloff: 0.5,
+		MinProjected:    0.15,
+		MaxFrontRadius:  2,
 	}
 }
 
@@ -487,7 +509,7 @@ git commit -m "feat(sim): Graph.Zones() sorted accessor for the simulation"
 
 ## Task 5: `Step` skeleton — age, terrain feedback, death, resolve, diff
 
-This task makes `Step` end-to-end (no movement/evolution/spawning yet): fronts age and are shaped by their current zone's influence, dead fronts are removed, weather resolves from surviving fronts (frontless zones = `Clear`), and a diff is produced.
+This task makes `Step` end-to-end (no movement/evolution/spawning yet): fronts age and are shaped by their current zone's influence, dead fronts are removed, weather resolves from surviving fronts with **intensity-scaled area coverage** (a front covers its zone and, the stronger it is, a wider ring of neighbors; frontless zones = `Clear`), and a diff is produced. Tests target the helpers directly so they remain valid as later tasks extend `Step`.
 
 **Files:** Create `sim/tick.go`; create `sim/tick_test.go`.
 
@@ -509,59 +531,114 @@ func twoZoneGraph() *Graph {
 	}
 }
 
-func TestStep_FeedbackDrainsAndKillsFront(t *testing.T) {
+// These tests exercise the tick HELPERS directly (not the full Step), so they
+// stay valid as later tasks add movement/spawning to Step.
+
+func TestAgeAndFeedback_DrainsAndClamps(t *testing.T) {
 	g := twoZoneGraph()
-	climate := DefaultClimate()
-	cfg := DefaultConfig()
-	cfg.SpawnChance = 0 // isolate: no new fronts during this test
-
-	// A weak storm sitting in the mountain zone (strong negative IntensityDelta).
-	st := State{
-		RNGState: 1,
-		NextID:   1,
-		Fronts: []Front{{
-			Id: 1, Type: "storm", Zone: "B", Intensity: 0.1, Moisture: 0.5, MaxAge: 24,
-		}},
-		Weather: map[ZoneId]WeatherType{},
+	// Front in mountain zone B (influence intensityDelta -0.15).
+	fronts := []Front{{Id: 1, Type: "storm", Zone: "B", Intensity: 0.1, Moisture: 0.5, MaxAge: 24}}
+	out := ageAndFeedback(fronts, g, DefaultClimate())
+	if out[0].Intensity != 0 {
+		t.Errorf("mountain feedback should drain 0.1 to 0 (clamped), got %v", out[0].Intensity)
 	}
-
-	// One tick: mountain influence (-0.15) drives intensity below 0 -> death.
-	next, _ := Step(st, g, climate, cfg, Clock{Round: 1})
-	if len(next.Fronts) != 0 {
-		t.Fatalf("front should have died in the mountains, got %d fronts (intensity %v)",
-			len(next.Fronts), next.Fronts)
-	}
-	if next.Weather["B"] != Clear {
-		t.Errorf("frontless zone B should resolve to Clear, got %q", next.Weather["B"])
+	if out[0].Age != 1 {
+		t.Errorf("age should increment to 1, got %d", out[0].Age)
 	}
 }
 
-func TestStep_FrontSetsZoneWeatherAndDiff(t *testing.T) {
+func TestRemoveDead_DropsZeroIntensityAndAged(t *testing.T) {
+	cfg := DefaultConfig()
+	fronts := []Front{
+		{Id: 1, Intensity: 0},                              // dead: no intensity
+		{Id: 2, Intensity: 0.5, Age: cfg.FrontHardAge + 1}, // dead: too old
+		{Id: 3, Intensity: 0.5, Age: 1},                    // alive
+	}
+	out := removeDead(fronts, cfg)
+	if len(out) != 1 || out[0].Id != 3 {
+		t.Errorf("only front 3 should survive, got %+v", out)
+	}
+}
+
+func TestResolveWeather_AreaCoverageScalesWithIntensity(t *testing.T) {
+	// Line A-B-C-D. Defaults: falloff 0.5, minProjected 0.15, maxRadius 2.
+	g := &Graph{
+		Nodes: map[string]ZoneNode{"A": {Zone: "A"}, "B": {Zone: "B"}, "C": {Zone: "C"}, "D": {Zone: "D"}},
+		Edges: []Edge{{A: "A", B: "B", Weight: 1}, {A: "B", B: "C", Weight: 1}, {A: "C", B: "D", Weight: 1}},
+	}
+	cfg := DefaultConfig()
+
+	// Strong storm at B (0.9): B=0.9, A&C=0.45, D=0.225 — all four covered (<= 2 hops).
+	strong := resolveWeather(g, []Front{{Id: 1, Type: "storm", Zone: "B", Intensity: 0.9}}, cfg)
+	for _, z := range []ZoneId{"A", "B", "C", "D"} {
+		if strong[z] != "storm" {
+			t.Errorf("strong storm should cover %s, got %q", z, strong[z])
+		}
+	}
+
+	// Weak front at B (0.2): neighbors project 0.1 < 0.15 — only B covered.
+	weak := resolveWeather(g, []Front{{Id: 1, Type: "fog", Zone: "B", Intensity: 0.2}}, cfg)
+	if weak["B"] != "fog" {
+		t.Errorf("weak front should hold B, got %q", weak["B"])
+	}
+	if weak["A"] != Clear || weak["C"] != Clear {
+		t.Errorf("weak front (0.2) should NOT spread; A=%q C=%q", weak["A"], weak["C"])
+	}
+}
+
+func TestResolveWeather_StrongerEffectiveIntensityWins(t *testing.T) {
+	g := &Graph{Nodes: map[string]ZoneNode{"A": {Zone: "A"}, "B": {Zone: "B"}}, Edges: []Edge{{A: "A", B: "B", Weight: 1}}}
+	cfg := DefaultConfig()
+	// storm centered at A (0.9 -> projects 0.45 onto B); fog local at B (0.5).
+	fronts := []Front{{Id: 1, Type: "storm", Zone: "A", Intensity: 0.9}, {Id: 2, Type: "fog", Zone: "B", Intensity: 0.5}}
+	w := resolveWeather(g, fronts, cfg)
+	if w["A"] != "storm" {
+		t.Errorf("A should be storm (0.9), got %q", w["A"])
+	}
+	if w["B"] != "fog" {
+		t.Errorf("B: local fog 0.5 should beat storm's projected 0.45, got %q", w["B"])
+	}
+}
+
+func TestResolveWeather_FrontlessZonesAreClear(t *testing.T) {
+	g := twoZoneGraph()
+	w := resolveWeather(g, nil, DefaultConfig())
+	if w["A"] != Clear || w["B"] != Clear {
+		t.Errorf("no fronts -> all zones Clear, got %+v", w)
+	}
+}
+
+func TestDiffWeather_ReportsOnlyChanges(t *testing.T) {
+	prev := map[ZoneId]WeatherType{"A": Clear, "B": "rain"}
+	next := map[ZoneId]WeatherType{"A": "storm", "B": "rain"}
+	diff := diffWeather(prev, next)
+	if len(diff.Changes) != 1 || diff.Changes[0].Zone != "A" ||
+		diff.Changes[0].From != Clear || diff.Changes[0].To != "storm" {
+		t.Errorf("expected one A: clear->storm change, got %+v", diff.Changes)
+	}
+}
+
+func TestStep_DeterministicAndCoversAllZones(t *testing.T) {
 	g := twoZoneGraph()
 	cfg := DefaultConfig()
-	cfg.SpawnChance = 0
-	st := State{
-		RNGState: 1, NextID: 2,
-		Fronts: []Front{{Id: 1, Type: "rain", Zone: "A", Intensity: 0.8, Moisture: 0.8, MaxAge: 24}},
-		Weather: map[ZoneId]WeatherType{"A": Clear, "B": Clear},
+	st := State{RNGState: 7, NextID: 1, Weather: map[ZoneId]WeatherType{}}
+	a, _ := Step(st, g, DefaultClimate(), cfg, Clock{Round: 1})
+	b, _ := Step(st, g, DefaultClimate(), cfg, Clock{Round: 1})
+	if a.RNGState != b.RNGState || len(a.Fronts) != len(b.Fronts) {
+		t.Fatal("Step must be deterministic for identical inputs")
 	}
-	next, diff := Step(st, g, DefaultClimate(), cfg, Clock{Round: 1})
-
-	if next.Weather["A"] != "rain" {
-		t.Errorf("zone A should show the front's weather 'rain', got %q", next.Weather["A"])
-	}
-	// A changed Clear->rain; B stays Clear. Exactly one change.
-	if len(diff.Changes) != 1 || diff.Changes[0].Zone != "A" ||
-		diff.Changes[0].From != Clear || diff.Changes[0].To != "rain" {
-		t.Errorf("expected one A: clear->rain change, got %+v", diff.Changes)
+	for _, z := range g.Zones() {
+		if _, ok := a.Weather[z]; !ok {
+			t.Errorf("zone %q missing from resolved weather", z)
+		}
 	}
 }
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `go test ./sim/ -run TestStep_`
-Expected: FAIL (`undefined: Step`).
+Run: `go test ./sim/`
+Expected: FAIL — `undefined: Step` (and the tick helpers `ageAndFeedback`, `resolveWeather`, etc.).
 
 - [ ] **Step 3: Implement `sim/tick.go`**
 
@@ -586,7 +663,7 @@ func Step(prev State, g *Graph, climate Climate, cfg Config, now Clock) (State, 
 	nextID := prev.NextID
 	fronts, nextID = spawnFronts(fronts, g, climate, cfg, rng, nextID)
 
-	weather := resolveWeather(g, fronts)
+	weather := resolveWeather(g, fronts, cfg)
 	diff := diffWeather(prev.Weather, weather)
 
 	return State{
@@ -642,27 +719,72 @@ func removeDead(fronts []Front, cfg Config) []Front {
 	return out
 }
 
-// resolveWeather computes per-zone weather: the highest-intensity front in a
-// zone wins (deterministic tie-break by FrontId); frontless zones are Clear.
-func resolveWeather(g *Graph, fronts []Front) map[ZoneId]WeatherType {
-	best := map[ZoneId]*Front{}
+// resolveWeather computes per-zone weather with intensity-scaled area coverage:
+// each front projects onto zones within cfg.MaxFrontRadius hops of its center,
+// with projected intensity = Intensity * CoverageFalloff^hops; a zone is covered
+// only while that stays >= cfg.MinProjected. Per zone, the front projecting the
+// highest effective intensity wins (deterministic tie-break by lowest FrontId).
+// Zones no front reaches are Clear. Stronger fronts naturally cover more zones.
+func resolveWeather(g *Graph, fronts []Front, cfg Config) map[ZoneId]WeatherType {
+	type claim struct {
+		eff   float64
+		id    FrontId
+		wtype WeatherType
+	}
+	best := map[ZoneId]claim{}
 	for i := range fronts {
 		f := &fronts[i]
-		cur, ok := best[f.Zone]
-		if !ok || f.Intensity > cur.Intensity ||
-			(f.Intensity == cur.Intensity && f.Id < cur.Id) {
-			best[f.Zone] = f
+		for zone, hops := range zonesWithin(g, f.Zone, cfg.MaxFrontRadius) {
+			eff := f.Intensity * pow(cfg.CoverageFalloff, hops)
+			if eff < cfg.MinProjected {
+				continue
+			}
+			cur, ok := best[zone]
+			if !ok || eff > cur.eff || (eff == cur.eff && f.Id < cur.id) {
+				best[zone] = claim{eff: eff, id: f.Id, wtype: f.Type}
+			}
 		}
 	}
 	out := make(map[ZoneId]WeatherType, len(g.Nodes))
 	for _, z := range g.Zones() {
-		if f, ok := best[z]; ok {
-			out[z] = f.Type
+		if c, ok := best[z]; ok {
+			out[z] = c.wtype
 		} else {
 			out[z] = Clear
 		}
 	}
 	return out
+}
+
+// zonesWithin returns each zone reachable from center within maxRadius hops,
+// mapped to its hop-distance (center is 0). Deterministic shortest-path BFS;
+// its result is order-independent, so resolveWeather stays deterministic.
+func zonesWithin(g *Graph, center ZoneId, maxRadius int) map[ZoneId]int {
+	dist := map[ZoneId]int{center: 0}
+	frontier := []ZoneId{center}
+	for d := 0; d < maxRadius; d++ {
+		var next []ZoneId
+		for _, z := range frontier {
+			for _, e := range g.Neighbors(z) {
+				if _, seen := dist[e.B]; !seen {
+					dist[e.B] = d + 1
+					next = append(next, e.B)
+				}
+			}
+		}
+		frontier = next
+	}
+	return dist
+}
+
+// pow raises base to a non-negative integer power (small exponents; avoids
+// importing math).
+func pow(base float64, exp int) float64 {
+	r := 1.0
+	for i := 0; i < exp; i++ {
+		r *= base
+	}
+	return r
 }
 
 // diffWeather returns the zones whose weather changed from prev to next, sorted
@@ -707,8 +829,8 @@ func spawnFronts(fronts []Front, g *Graph, climate Climate, cfg Config, rng *RNG
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `go test ./sim/ -run TestStep_`
-Expected: PASS. Also `go test ./sim/...` (all sim tests + arch guardrail) and `gofmt -l sim` (empty), `go vet ./sim/...` (clean).
+Run: `go test ./sim/`
+Expected: PASS (the helper tests + the Step determinism/coverage test). Also `go test ./sim/...` (all sim tests + arch guardrail), `gofmt -l sim` (empty), `go vet ./sim/...` (clean).
 
 - [ ] **Step 6: Commit**
 
@@ -879,8 +1001,8 @@ func appendBounded(history []ZoneId, z ZoneId, max int) []ZoneId {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `go test ./sim/ -run 'TestMoveFronts|TestStep_'`
-Expected: PASS (movement tests pass; the Task-5 Step tests still pass).
+Run: `go test ./sim/`
+Expected: PASS (the new movement tests pass; all Task-5 helper/Step tests still pass).
 
 - [ ] **Step 5: Commit**
 
@@ -1374,8 +1496,11 @@ Each `Step`: age fronts and apply the current zone's biome influence (the
 weather ← biome feedback), move fronts along edges (damped by `MovementResistance`,
 no immediate backtrack), evolve a moved front's type from the new zone's climate,
 drop dead fronts (intensity ≤ 0 or past the hard age cap), maybe spawn one front
-under budget (origin weighted by `SpawnWeight`), resolve per-zone weather
-(highest-intensity front wins; frontless zones = `Clear`), and emit the diff.
+under budget (origin weighted by `SpawnWeight`), resolve per-zone weather with
+**intensity-scaled area coverage** (a front projects onto zones within
+`MaxFrontRadius` hops at `Intensity × CoverageFalloff^hops`, covered while
+`>= MinProjected`; per zone the highest *effective* intensity wins; frontless
+zones = `Clear`), and emit the diff.
 
 ### Determinism
 All randomness flows through the `RNG` built from `State.RNGState`; the advanced
@@ -1384,6 +1509,9 @@ identical fronts and per-zone weather (see `TestStep_Deterministic`).
 
 ### Deferred (later milestones)
 - File/YAML climate overrides and mutator application live in the engine layer (M3).
+- **Prevailing-wind direction** (a MUD owner biasing where storms originate/move,
+  e.g. west→east) is a planned later chunk: it needs directional edge metadata,
+  which a future crawler pass can derive from each exit's `MapDirection`.
 - Calm-zone variety (occasional light fog/overcast in frontless zones) and an
   explicit windward "orographic" precip spike are noted enrichments, not built.
 ````
@@ -1401,11 +1529,13 @@ git commit -m "docs(sim): document the weather simulation core (M2)"
 
 ## Self-Review Notes (author)
 
-**Spec coverage (§7):** §7.1 interfaces → `Step(prev, *Graph, Climate, Config, Clock)` (Graph serves as the WorldView — documented deviation); `State`/`StateDiff` (Task 2). §7.2 core types → Task 2. §7.3 climate profiles → Task 3 (Go-defined `DefaultClimate`; file overrides deferred to M3, noted). §7.4 feedback loop → biome→weather in `spawnFronts`/`evolveTypes` (Tasks 7/8), weather←biome in `ageAndFeedback` (Task 5). §7.5 tick steps 1–7 → Tasks 5 (age/feedback/death/resolve/diff), 6 (movement), 7 (type evolution), 8 (spawn/budget); resolve dominant-by-intensity (Task 5/refined tie-break). §7.6 determinism/RNG → Tasks 1, 9. §7.7 acceptance → pure (arch guardrail stays green; no internal/* or third-party), reproducible (Task 9), feedback verified (Task 9 storm-over-mountain), budget respected (Task 8), clamps (Tasks 2/5). Persistence for M3 → Task 10.
+**Spec coverage (§7):** §7.1 interfaces → `Step(prev, *Graph, Climate, Config, Clock)` (Graph serves as the WorldView — documented deviation); `State`/`StateDiff` (Task 2). §7.2 core types → Task 2. §7.3 climate profiles → Task 3 (Go-defined `DefaultClimate`; file overrides deferred to M3, noted). §7.4 feedback loop → biome→weather in `spawnFronts`/`evolveTypes` (Tasks 7/8), weather←biome in `ageAndFeedback` (Task 5). §7.5 tick steps 1–7 → Tasks 5 (age/feedback/death/area-coverage resolve/diff), 6 (movement), 7 (type evolution), 8 (spawn/budget); resolve = highest *effective* intensity per zone (Task 5). §7.6 determinism/RNG → Tasks 1, 9. §7.7 acceptance → pure (arch guardrail stays green; no internal/* or third-party), reproducible (Task 9), feedback verified (Task 9 storm-over-mountain), budget respected (Task 8), clamps (Tasks 2/5). **Area coverage (front strength → spread radius, user-requested)** → Task 3 (config) + Task 5 (`resolveWeather`/`zonesWithin`). Persistence for M3 → Task 10.
 
-**Deliberate simplifications (documented in-plan + context.md):** Graph-as-WorldView (no separate interface); climate as Go data (YAML overrides → M3); type evolution via weighted re-roll instead of a transition table; frontless zones = `Clear` (calm-variety deferred); prevailing-wind bias omitted from M2 (movement uses edge weight + resistance + no-backtrack only) — it's a config knob slated for later, called out here so it isn't mistaken for missing.
+**Deliberate simplifications (documented in-plan + context.md):** Graph-as-WorldView (no separate interface); climate as Go data (YAML overrides → M3); type evolution via weighted re-roll instead of a transition table; frontless zones = `Clear` (calm-variety deferred). **Prevailing-wind direction is a planned LATER chunk** (needs directional edge metadata from exit `MapDirection`), not omitted-by-accident — M2 movement is edge weight + resistance + no-backtrack only.
 
-**Type/name consistency:** `Step`, `State{Round,RNGState,NextID,Fronts,Weather}`, `Front{Id,Type,Zone,Intensity,Moisture,Age,MaxAge,History}`, `Climate.For`, `ClimateProfile{Weather,Influence,SpawnWeight}`, `Config{MaxActiveFronts,SpawnChance,HistoryLen,FrontHardAge}`, `RNG{NewRNG,Uint64,Float64,Intn,State}`, helper names (`ageAndFeedback`/`moveFronts`/`evolveTypes`/`removeDead`/`spawnFronts`/`resolveWeather`/`diffWeather`/`pickNeighbor`/`pickWeatherType`/`pickSpawnZone`/`appendBounded`/`lastZone`/`cloneFronts`) are consistent across tasks. `Graph.Zones()`/`Neighbors()`/`Nodes` match M1's API. The Task-5 stubs use the exact signatures their Task-6/7/8 replacements adopt.
+**Test robustness:** the tick mechanics (feedback, death, movement, evolution, spawning, area-coverage resolve) are tested via their **helper functions directly**, not the full `Step`, so adding a later pipeline stage can't silently break an earlier task's assertions. `Step` itself gets a determinism + all-zones-covered smoke test (Task 5) and the golden-trace + storm-over-mountain integration tests (Task 9).
+
+**Type/name consistency:** `Step`, `State{Round,RNGState,NextID,Fronts,Weather}`, `Front{Id,Type,Zone,Intensity,Moisture,Age,MaxAge,History}`, `Climate.For`, `ClimateProfile{Weather,Influence,SpawnWeight}`, `Config{MaxActiveFronts,SpawnChance,HistoryLen,FrontHardAge,CoverageFalloff,MinProjected,MaxFrontRadius}`, `RNG{NewRNG,Uint64,Float64,Intn,State}`, helper names (`ageAndFeedback`/`moveFronts`/`evolveTypes`/`removeDead`/`spawnFronts`/`resolveWeather(g,fronts,cfg)`/`zonesWithin`/`pow`/`diffWeather`/`pickNeighbor`/`pickWeatherType`/`pickSpawnZone`/`appendBounded`/`lastZone`/`cloneFronts`) are consistent across tasks. `Graph.Zones()`/`Neighbors()`/`Nodes` match M1's API. The Task-5 stubs use the exact signatures their Task-6/7/8 replacements adopt.
 
 **Placeholders:** none — every step has complete code or an exact command + expected result.
 
