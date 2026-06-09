@@ -1,0 +1,13 @@
+# Screenshots / scratch images dropped into the working folder
+Screenshot*.png
+Screenshot*.jpg
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
