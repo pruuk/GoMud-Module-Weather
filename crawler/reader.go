@@ -17,7 +17,10 @@ type WorldReader interface {
 
 // RoomView is a read-only snapshot of the room facts the crawler uses.
 type RoomView struct {
-	ID      int
+	ID int
+	// Zone is the room's home zone. The crawler attributes rooms to zones via
+	// WorldReader.RoomIDs, not this field; Zone is provided for callers that
+	// consume a RoomView directly.
 	Zone    string
 	Outdoor bool
 	Exits   []ExitView

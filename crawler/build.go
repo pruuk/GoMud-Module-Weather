@@ -164,6 +164,9 @@ func canonicalPair(a, b string) [2]string {
 // countComponents returns the number of connected components in the zone graph
 // using union-find. Every included zone is its own component until edges merge
 // them, so isolated zones each count once.
+//
+// Precondition: every zone named in edges must also be present in zones; the
+// crawler guarantees this because edges are only created between included zones.
 func countComponents(zones map[string]bool, edges []sim.Edge) int {
 	parent := make(map[string]string, len(zones))
 	for z := range zones {

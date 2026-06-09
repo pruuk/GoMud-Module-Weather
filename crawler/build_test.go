@@ -161,6 +161,23 @@ func TestDefaultOptions(t *testing.T) {
 	}
 }
 
+func TestBuild_RoomLoadFailureSkipped(t *testing.T) {
+	f := newFakeReader()
+	f.addRoom("A", "plains", 1, true, ExitView{ToRoom: 2})
+	f.addRoom("B", "forest", 2, true, ExitView{ToRoom: 1})
+	// Register a room id in zone A that cannot be loaded (present in the zone's
+	// RoomIDs, absent from rooms) — buildEdges must skip it without panicking.
+	f.zoneRooms["A"] = append(f.zoneRooms["A"], 99)
+
+	g, err := Build(f, Options{IncludeSecretExits: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Edges) != 1 || g.Edges[0].Weight != 2 {
+		t.Fatalf("want one A-B edge weight 2, got %+v", g.Edges)
+	}
+}
+
 func TestBuild_BadExcludePattern(t *testing.T) {
 	f := newFakeReader()
 	f.addRoom("Town", "city", 1, true)
