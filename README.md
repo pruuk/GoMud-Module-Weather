@@ -54,21 +54,26 @@ Feedback from GoMud community developers is welcome on the spec.
 - **Works out of the box** — install, flip one flag, and a stock world has
   weather with no data authoring required.
 
-## Planned layout
+## Layout
 
 The module source lives at the repo root, with `go.mod` declaring the path
 `github.com/GoMudEngine/GoMud/modules/weather` so the pure packages compile
 identically here and inside a GoMud checkout's `modules/weather/`. The pure
-packages (`sim/`, `crawler/`) are unit-tested standalone with `go test ./...`;
-the engine-backed packages compile only inside a checkout.
+packages (`sim/`, `crawler/`) are unit-tested standalone with
+`go test ./sim/... ./crawler/...`; the engine-backed packages compile only
+inside a checkout.
 
 ```
-sim/        # PURE simulation/data core — no engine imports (Graph, etc.)
-crawler/    # geography crawler (zone adjacency) — pure, engine-agnostic Build
-engine/     # (next chunk) the ONLY package importing internal/rooms,/mutators,/events
-weather.go  # (next chunk) plugin registration + wiring
-files/      # (next chunk) config overlay + climate/weather/mutator/buff/emote data
+sim/               # PURE simulation/data core — no engine imports (Graph, cache, Neighbors)
+crawler/           # geography crawler (zone adjacency) — pure, engine-agnostic Build
+engine/            # engine adapter — the ONLY package importing internal/* (WorldReader, cache codec)
+weather.go         # plugin registration, first-round graph build/persist, the `weather` command
+weather_config.go  # module config (Enabled / IncludeSecretExits / RebuildGraphOnBoot)
+files/             # config overlay (data-overlays/config.yaml)
 ```
+
+(Future milestones add weather/climate/emote/buff data under `files/` and the
+simulation tick in `sim/`.)
 
 See the spec's *Architecture* section for the full breakdown and the three
 sub-projects (crawler → simulation core → engine integration).
