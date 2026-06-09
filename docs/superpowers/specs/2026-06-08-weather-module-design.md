@@ -180,6 +180,12 @@ modules/weather/
 └── README.md
 ```
 
+> **Repo realization (M1):** source lives at the repo root (root == the
+> in-checkout `modules/weather/` dir); `go.mod` uses the path
+> `github.com/GoMudEngine/GoMud/modules/weather` so pure-package import paths
+> match standalone and in-checkout. The `go.mod` is a dev/test convenience and
+> is not copied into a checkout (in-checkout modules have no `go.mod`).
+
 **The contract:** `sim/` defines interfaces it needs (a read-only `WorldView`: zones, adjacency, per-zone biome) and the output it produces (`StateDiff`: which zones changed to which weather). `engine/` implements `WorldView` against the live engine and consumes `StateDiff` to drive mutators. `sim/` never imports `internal/*`. **Backporting = re-point/patch `engine/` only.**
 
 ### 4.3 Data flow per tick
@@ -321,6 +327,12 @@ A versioned JSON/YAML file via `plugin.WriteBytes("geography.json", …)`:
 - Graph round-trips through cache without loss.
 - `weather graph <zone>` prints neighbors + weights for spot-checking.
 - Unit-tested against a synthetic room set (no live server needed) via the `WorldView` interface.
+
+> **Status (2026-06-09):** the pure core (graph types, cache round-trip, and
+> the `Build` algorithm with adjacency/weights/options/components/metadata) is
+> implemented and unit-tested standalone. Remaining for M1b: the live
+> engine-backed `WorldReader`, the `weather graph`/`weather rebuild` commands,
+> and on-disk cache persistence.
 
 ---
 

@@ -48,16 +48,18 @@ implementation begins.
 
 ## Planned layout
 
-The source of truth lives here under `module/weather/`; it is dropped into a
-GoMud checkout's `modules/weather/` to build (the playtest harness pattern).
+The module source lives at the repo root, with `go.mod` declaring the path
+`github.com/GoMudEngine/GoMud/modules/weather` so the pure packages compile
+identically here and inside a GoMud checkout's `modules/weather/`. The pure
+packages (`sim/`, `crawler/`) are unit-tested standalone with `go test ./...`;
+the engine-backed packages compile only inside a checkout.
 
 ```
-module/weather/
-  weather.go      # plugin registration + wiring
-  sim/            # PURE simulation core — no engine imports
-  crawler/        # geography crawler (zone adjacency graph)
-  engine/         # the ONLY package importing internal/rooms,/mutators,/events
-  files/          # config overlay + climate/weather/mutator/buff/emote data
+sim/        # PURE simulation/data core — no engine imports (Graph, etc.)
+crawler/    # geography crawler (zone adjacency) — pure, engine-agnostic Build
+engine/     # (next chunk) the ONLY package importing internal/rooms,/mutators,/events
+weather.go  # (next chunk) plugin registration + wiring
+files/      # (next chunk) config overlay + climate/weather/mutator/buff/emote data
 ```
 
 See the spec's *Architecture* section for the full breakdown and the three
@@ -79,10 +81,12 @@ startup warning rather than crashing.
 
 ## Development
 
-This module only compiles inside a GoMud checkout. Develop by placing
-`module/weather/` under a checkout's `modules/weather/`, then
-`go generate ./... && go build`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
-module/engine ownership boundary and review workflow.
+The pure core (`sim/`, `crawler/`) is developed and tested standalone in this
+repo: `go test ./...`. The engine-backed reader, plugin registration, and admin
+commands (next milestone) compile only inside a GoMud checkout — develop those
+by syncing the module source into a checkout's `modules/weather/` (without this
+repo's `go.mod`, which must not travel), then `go generate ./... && go build`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the module/engine boundary.
 
 ## License
 
