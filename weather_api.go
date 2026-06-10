@@ -15,6 +15,29 @@ func (m *weatherModule) registerExports() {
 	m.plug.ExportFunction(`GetWeather`, m.exportGetWeather)
 	m.plug.ExportFunction(`GetFronts`, m.exportGetFronts)
 	m.plug.ExportFunction(`SpawnFront`, m.exportSpawnFront)
+	m.plug.ExportFunction(`GetSeason`, m.exportGetSeason)
+}
+
+// exportGetSeason reports a zone's current season: {"track": string,
+// "season": string, "blend": float64}. Empty strings when seasons are off,
+// the zone is unknown, or its biome is unbound.
+func (m *weatherModule) exportGetSeason(zone string) map[string]any {
+	out := map[string]any{"track": "", "season": "", "blend": 0.0}
+	if !m.simReady || !m.seasonsOn {
+		return out
+	}
+	canonical, ok := m.graph.FindZone(zone)
+	if !ok {
+		return out
+	}
+	zs, ok := m.zoneSeasons[canonical]
+	if !ok {
+		return out
+	}
+	out["track"] = zs.Track
+	out["season"] = zs.Season
+	out["blend"] = zs.Blend
+	return out
 }
 
 // exportGetWeather reports a zone's current weather: {"type": string,
