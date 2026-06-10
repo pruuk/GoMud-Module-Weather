@@ -34,3 +34,34 @@ func TestStateFromJSONError(t *testing.T) {
 		t.Error("StateFromJSON should error on malformed JSON")
 	}
 }
+
+func TestNewState(t *testing.T) {
+	s := NewState(99)
+	if s.RNGState != 99 {
+		t.Errorf("seed not stored: %d", s.RNGState)
+	}
+	if s.NextID != 1 {
+		t.Errorf("NextID should start at 1, got %d", s.NextID)
+	}
+	if s.Weather == nil || len(s.Weather) != 0 {
+		t.Errorf("Weather should be empty non-nil map: %v", s.Weather)
+	}
+	if len(s.Fronts) != 0 {
+		t.Errorf("Fronts should be empty: %v", s.Fronts)
+	}
+}
+
+func TestDeriveSeedStableAndWorldSensitive(t *testing.T) {
+	g1 := &Graph{Nodes: map[string]ZoneNode{"A": {}, "B": {}}}
+	g1b := &Graph{Nodes: map[string]ZoneNode{"B": {}, "A": {}}} // same zones, different insertion
+	g2 := &Graph{Nodes: map[string]ZoneNode{"A": {}, "C": {}}}
+	if DeriveSeed(g1) != DeriveSeed(g1b) {
+		t.Error("same zone set must derive the same seed")
+	}
+	if DeriveSeed(g1) == DeriveSeed(g2) {
+		t.Error("different worlds should derive different seeds")
+	}
+	if DeriveSeed(g1) == 0 {
+		t.Error("derived seed should be non-zero for a non-empty world")
+	}
+}
