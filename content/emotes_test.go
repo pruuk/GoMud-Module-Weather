@@ -15,6 +15,14 @@ outdoor:
 indoor:
   default:
     - "Rain hammers against the windows."
+seasonal:
+  winter:
+    outdoor:
+      default:
+        - "Sleet-laden thunder shakes loose flurries of ice."
+    indoor:
+      default:
+        - "Frozen rain rattles the shutters like thrown gravel."
 `
 
 func loadTestTables(t *testing.T) Tables {
@@ -31,16 +39,16 @@ func TestPickSelectsByBiomeAndIndoor(t *testing.T) {
 	tables := loadTestTables(t)
 	first := func(n int) int { return 0 }
 
-	if got := tables.Pick("storm", "forest", false, first); got != "Wind tears at the branches; the whole canopy roars." {
+	if got := tables.Pick("storm", "forest", false, "", first); got != "Wind tears at the branches; the whole canopy roars." {
 		t.Errorf("forest outdoor: %q", got)
 	}
-	if got := tables.Pick("storm", "desert", false, first); got != "Thunder cracks directly overhead." {
+	if got := tables.Pick("storm", "desert", false, "", first); got != "Thunder cracks directly overhead." {
 		t.Errorf("unknown biome should fall back to default: %q", got)
 	}
-	if got := tables.Pick("storm", "forest", true, first); got != "Rain hammers against the windows." {
+	if got := tables.Pick("storm", "forest", true, "", first); got != "Rain hammers against the windows." {
 		t.Errorf("indoor falls back to indoor default (never outdoor): %q", got)
 	}
-	if got := tables.Pick("fog", "forest", false, first); got != "" {
+	if got := tables.Pick("fog", "forest", false, "", first); got != "" {
 		t.Errorf("missing table must yield silence: %q", got)
 	}
 }
@@ -48,7 +56,7 @@ func TestPickSelectsByBiomeAndIndoor(t *testing.T) {
 func TestPickUsesRoll(t *testing.T) {
 	tables := loadTestTables(t)
 	rolled := -1
-	got := tables.Pick("storm", "default", false, func(n int) int { rolled = n; return 1 })
+	got := tables.Pick("storm", "default", false, "", func(n int) int { rolled = n; return 1 })
 	if rolled != 2 {
 		t.Errorf("roll should receive the line count, got %d", rolled)
 	}
@@ -73,10 +81,39 @@ func TestLoadEmotesMissingDir(t *testing.T) {
 
 func TestPickClampsOutOfRangeRoll(t *testing.T) {
 	tables := loadTestTables(t)
-	if got := tables.Pick("storm", "default", false, func(n int) int { return n }); got != "Thunder cracks directly overhead." {
+	if got := tables.Pick("storm", "default", false, "", func(n int) int { return n }); got != "Thunder cracks directly overhead." {
 		t.Errorf("out-of-range roll should clamp to first line: %q", got)
 	}
-	if got := tables.Pick("storm", "default", false, func(n int) int { return -3 }); got != "Thunder cracks directly overhead." {
+	if got := tables.Pick("storm", "default", false, "", func(n int) int { return -3 }); got != "Thunder cracks directly overhead." {
 		t.Errorf("negative roll should clamp to first line: %q", got)
+	}
+}
+
+func TestPickSeasonalVariant(t *testing.T) {
+	tables := loadTestTables(t)
+	first := func(n int) int { return 0 }
+
+	// Season with a variant: seasonal section wins.
+	if got := tables.Pick("storm", "default", false, "winter", first); got != "Sleet-laden thunder shakes loose flurries of ice." {
+		t.Errorf("winter outdoor variant: %q", got)
+	}
+	if got := tables.Pick("storm", "default", true, "winter", first); got != "Frozen rain rattles the shutters like thrown gravel." {
+		t.Errorf("winter indoor variant: %q", got)
+	}
+	// Variant section misses the biome -> variant default (not base biome).
+	if got := tables.Pick("storm", "forest", false, "winter", first); got != "Sleet-laden thunder shakes loose flurries of ice." {
+		t.Errorf("variant default should win over base biome: %q", got)
+	}
+	// Season without a variant: base lines.
+	if got := tables.Pick("storm", "forest", false, "summer", first); got != "Wind tears at the branches; the whole canopy roars." {
+		t.Errorf("no-variant season falls to base: %q", got)
+	}
+	// No season (seasons off / unbound zone): base lines.
+	if got := tables.Pick("storm", "default", false, "", first); got != "Thunder cracks directly overhead." {
+		t.Errorf("empty season falls to base: %q", got)
+	}
+	// Variant exists but its sections are empty for indoor+biome: falls to base.
+	if got := tables.Pick("storm", "default", true, "summer", first); got != "Rain hammers against the windows." {
+		t.Errorf("missing variant indoor falls to base indoor: %q", got)
 	}
 }

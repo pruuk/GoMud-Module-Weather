@@ -10,6 +10,12 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// TableSection is one outdoor/indoor pair of biome-keyed line lists.
+type TableSection struct {
+	Outdoor map[string][]string `yaml:"outdoor"`
+	Indoor  map[string][]string `yaml:"indoor"`
+}
+
 // Table holds the ambient lines for one weather type, keyed by biome with a
 // "default" fallback, split outdoor/indoor (spec §9.4). Lines are uniform
 // random picks (the spec's per-line weights are an unneeded refinement for
@@ -18,6 +24,10 @@ type Table struct {
 	Weather string              `yaml:"weather"`
 	Outdoor map[string][]string `yaml:"outdoor"`
 	Indoor  map[string][]string `yaml:"indoor"`
+	// Seasonal holds optional per-season variants, keyed by season NAME
+	// (matching across tracks by design — "winter" is temperate's winter).
+	// Missing seasons/sections fall through to the base lines (spec §6).
+	Seasonal map[string]TableSection `yaml:"seasonal"`
 }
 
 // Tables maps weather type -> emote table.
@@ -62,24 +72,26 @@ func LoadEmotes(fsys fs.FS, dir string) (Tables, error) {
 	return tables, nil
 }
 
-// Pick selects one ambient line for (weather, biome, indoor), or "" when
-// nothing matches. Fallbacks: exact biome -> "default" biome. Indoor never
-// falls back to outdoor — silence beats wrong prose. roll(n) must return a
-// value in [0,n); pass the engine's util.Rand (or a stub in tests) — NEVER the
-// sim RNG, which must stay isolated from presentation randomness.
-// An out-of-range roll result is clamped to the first line rather than panicking.
-func (ts Tables) Pick(weather sim.WeatherType, biome string, indoor bool, roll func(int) int) string {
+// Pick selects one ambient line for (weather, biome, indoor, season), or ""
+// when nothing matches. Lookup order: the season's variant section (biome ->
+// "default") when a variant exists, then the base section (biome ->
+// "default"). season "" skips the variant layer (seasons off / unbound zone).
+// Indoor never falls back to outdoor — silence beats wrong prose. roll(n)
+// must return [0,n); pass the engine's util.Rand — NEVER the sim RNG. An
+// out-of-range roll result is clamped to the first line.
+func (ts Tables) Pick(weather sim.WeatherType, biome string, indoor bool, season string, roll func(int) int) string {
 	t, ok := ts[weather]
 	if !ok {
 		return ""
 	}
-	section := t.Outdoor
-	if indoor {
-		section = t.Indoor
+	var lines []string
+	if season != "" {
+		if v, ok := t.Seasonal[season]; ok {
+			lines = sectionLines(v.Outdoor, v.Indoor, biome, indoor)
+		}
 	}
-	lines := section[biome]
 	if len(lines) == 0 {
-		lines = section["default"]
+		lines = sectionLines(t.Outdoor, t.Indoor, biome, indoor)
 	}
 	if len(lines) == 0 {
 		return ""
@@ -89,4 +101,17 @@ func (ts Tables) Pick(weather sim.WeatherType, biome string, indoor bool, roll f
 		i = 0
 	}
 	return lines[i]
+}
+
+// sectionLines resolves biome -> "default" within one outdoor/indoor pair.
+func sectionLines(outdoor, indoor map[string][]string, biome string, useIndoor bool) []string {
+	section := outdoor
+	if useIndoor {
+		section = indoor
+	}
+	lines := section[biome]
+	if len(lines) == 0 {
+		lines = section["default"]
+	}
+	return lines
 }
