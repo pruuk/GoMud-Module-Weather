@@ -9,10 +9,12 @@ $dest = Join-Path $Checkout "modules\weather"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
 # /MIR mirrors (so deletions propagate); exclude repo-only dirs/files. go.mod and
-# go.sum MUST NOT travel. robocopy returns 0-7 on success (>=8 is an error).
+# go.sum MUST NOT travel. The .git FILE exclusion matters when running from a
+# git worktree (where .git is a file, not a directory). robocopy returns 0-7 on
+# success (>=8 is an error).
 robocopy "." $dest /MIR `
-  /XD .git docs scripts .worktrees `
-  /XF go.mod go.sum "*.png" "Screenshot*" `
+  /XD .git docs scripts .worktrees .claude `
+  /XF go.mod go.sum .git "*.png" "Screenshot*" `
   /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed with code $LASTEXITCODE" }
 
