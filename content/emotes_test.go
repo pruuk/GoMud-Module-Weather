@@ -70,3 +70,13 @@ func TestLoadEmotesMissingDir(t *testing.T) {
 		t.Fatalf("missing dir should be empty tables, nil error: %v %v", tables, err)
 	}
 }
+
+func TestPickClampsOutOfRangeRoll(t *testing.T) {
+	tables := loadTestTables(t)
+	if got := tables.Pick("storm", "default", false, func(n int) int { return n }); got != "Thunder cracks directly overhead." {
+		t.Errorf("out-of-range roll should clamp to first line: %q", got)
+	}
+	if got := tables.Pick("storm", "default", false, func(n int) int { return -3 }); got != "Thunder cracks directly overhead." {
+		t.Errorf("negative roll should clamp to first line: %q", got)
+	}
+}

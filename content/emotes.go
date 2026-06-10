@@ -38,6 +38,7 @@ func ParseEmoteTable(b []byte) (Table, error) {
 // LoadEmotes loads every *.yaml emote table under dir in fsys, keyed by the
 // table's weather type. A missing dir yields empty tables (silence). The first
 // malformed file aborts with an error; the caller decides whether to fail soft.
+// On duplicate weather keys, the later file in sorted filename order wins.
 func LoadEmotes(fsys fs.FS, dir string) (Tables, error) {
 	tables := Tables{}
 	entries, err := fs.ReadDir(fsys, dir)
@@ -66,6 +67,7 @@ func LoadEmotes(fsys fs.FS, dir string) (Tables, error) {
 // falls back to outdoor — silence beats wrong prose. roll(n) must return a
 // value in [0,n); pass the engine's util.Rand (or a stub in tests) — NEVER the
 // sim RNG, which must stay isolated from presentation randomness.
+// An out-of-range roll result is clamped to the first line rather than panicking.
 func (ts Tables) Pick(weather sim.WeatherType, biome string, indoor bool, roll func(int) int) string {
 	t, ok := ts[weather]
 	if !ok {
@@ -82,5 +84,9 @@ func (ts Tables) Pick(weather sim.WeatherType, biome string, indoor bool, roll f
 	if len(lines) == 0 {
 		return ""
 	}
-	return lines[roll(len(lines))]
+	i := roll(len(lines))
+	if i < 0 || i >= len(lines) {
+		i = 0
+	}
+	return lines[i]
 }
