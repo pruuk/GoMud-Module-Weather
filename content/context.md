@@ -44,7 +44,9 @@ type Tables map[sim.WeatherType]Table
 
 ## Core Functions
 - `ParseClimate([]byte) (string, sim.ClimateProfile, error)` — parse one climate
-  YAML into its biome id and profile.
+  YAML into its biome id and profile. The optional `track:` key is passed
+  through as `ClimateProfile.Track`; omitting it leaves `Track` empty
+  (= unbound, no seasonal adjustment for this biome).
 - `LoadClimate(fs.FS, dir string) (sim.Climate, error)` — `sim.DefaultClimate()`
   overlaid with every `*.yaml` under `dir`.
 - `ParseEmoteTable([]byte) (Table, error)` — parse one emote table YAML.

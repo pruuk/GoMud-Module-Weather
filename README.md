@@ -191,6 +191,43 @@ mutator (the engine merges zone mutators into every room render), and an
 emote scheduler voices occupied rooms. State is saved through plugin storage
 and reconciled on boot.
 
+### Seasons (v2, S1)
+
+S1 ships one feature: **climate odds shift with the calendar**. Each biome is
+bound to a named season track (YAML file); each tick the simulation receives a
+season-adjusted climate instead of the flat biome defaults. The shipped tracks
+are `temperate` (winter/spring/summer/autumn) and `monsoon` (wet/dry). S2/S3
+will add seasonal mutators and seasonal prose; S1 is climate-only. See the
+[seasons design spec](docs/superpowers/specs/2026-06-10-seasons-design.md)
+for full architecture.
+
+**Making an esoteric season (no Go required).** Two optional per-season YAML
+fields let you introduce weather types that are completely absent from a biome's
+base climate — the "glass rain during the Shattering" pattern from spec §3.1a:
+
+```yaml
+# files/datafiles/seasons/mystic.yaml
+track: stillness
+seasons:
+  - name: calm
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  - name: shattering           # a Broken-Earth-style season
+    months: [11, 12]
+    transitionDays: 2
+    baseWeightScale: 0.0       # suppress ALL normal weather (default 1.0)
+    weatherWeightAdditions:    # absolute weights ADDED — may introduce absent types
+      glassrain: 8
+      ashfall: 3
+    spawnWeightMultiplier: 2.0
+    influence: { intensityDelta: 0.05 }
+```
+
+Then bind the biome in its climate file (`track: stillness`) and follow the
+existing new-weather-type recipe: add `files/datafiles/mutators/weather_glassrain.yaml`
+(room name tag, description, alert, light mod) and
+`files/datafiles/emotes/glassrain.yaml` (ambient lines per biome). That is
+the entire authoring checklist — a glass-rain season is pure YAML, no Go.
+
 ## Configuration
 
 All knobs live under `Modules.weather.*`. Defaults ship in this module's
@@ -212,6 +249,7 @@ merge; module config comes from module overlays.
 | `Persist` | `true` | Save/restore fronts + RNG across reboots. |
 | `IncludeSecretExits` | `true` | Crawler counts secret/locked exits as zone adjacency (weather doesn't care about locks). |
 | `RebuildGraphOnBoot` | `false` | Force a fresh crawl each boot instead of using the cache. |
+| `SeasonsEnabled` | `true` | Master switch for the seasons layer. `false` = weather runs exactly as v1 (no climate shifts, no `WeatherSeasonChanged` events, no `GetSeason` response). |
 
 Planned but not yet config keys (deferred to M4+): `PrevailingWind`,
 `PerRoomRefinement`, `Buffs.Overrides`, `ExcludeZonePatterns` (the crawler
@@ -346,15 +384,16 @@ The repo splits along an engine boundary:
 sim/        pure simulation core — graph, fronts, climate, Step()   (no engine imports)
 crawler/    pure geography crawler — exits → zone-adjacency graph   (no engine imports)
 content/    pure data-file layer — climate + emote YAML parsing     (no engine imports)
+seasons/    pure season resolver — tracks → effective climate transform (no engine imports)
 engine/     the engine adapter — the ONLY package calling internal/* world APIs
 weather*.go module root — plugin lifecycle, tick loop, commands, exports
-files/      shipped data: config overlay, mutator specs, emote tables
+files/      shipped data: config overlay, mutator specs, emote tables, season tracks
 ```
 
 Pure packages are tested standalone, no server needed:
 
 ```sh
-go test ./sim/... ./crawler/... ./content/...
+go test ./sim/... ./crawler/... ./content/... ./seasons/...
 ```
 
 (Not `go test ./...` — the engine-coupled packages only compile inside a GoMud

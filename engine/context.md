@@ -38,6 +38,16 @@ module portable across GoMud and DOGMud.
   `decayrate`, a bare diff-apply would let engine-side decay drift persist.
   `StripBuffs()` clears buff id lists on all loaded `weather-*` specs — boot-time
   only, no restore path. `warnedMutators` warn-once map (safe on single goroutine).
+- **calendar.go**: `CalendarShape() (monthsPerYear, daysPerYear int)` — reads
+  the active calendar name from `gametime.GetDate().Calendar`, resolves its
+  shape via `gametime.GetCalendar`, and falls back to the `"default"` calendar
+  if the named one is absent or invalid. Returns `(0, 0)` when no usable
+  calendar exists — the caller (`loadSeasons`) treats a zero shape as "seasons
+  off". `CalendarNow() seasons.CalendarPos` — the current day-of-year for
+  season resolution (`GameDate.Day` is 1-based and the engine subtracts whole
+  years, so it is already the day-of-year). `DaysPerYear` is sourced from the
+  same calendar shape lookup rather than from `GameDate.DaysPerYear` directly,
+  ensuring consistency with `CalendarShape`.
 - **clock.go**: `TickPeriod(hours int) string` — renders game-hour count as a
   `gametime.AddPeriod` period string; values < 1 clamp to 1. `NextTickRound`
   returns the round number one period from now. `CurrentRound` exposes
@@ -51,12 +61,13 @@ module portable across GoMud and DOGMud.
 ## Dependencies
 - `internal/rooms`, `internal/mutators`, `internal/gametime`, `internal/util`,
   `internal/mudlog` (engine).
-- `github.com/GoMudEngine/GoMud/modules/weather/{sim,crawler,content}` — pure types.
+- `github.com/GoMudEngine/GoMud/modules/weather/{sim,crawler,content,seasons}` — pure types.
 
 ## Consumers
 - The module root (`weather.go`) uses `NewWorldReader()`, `DecodeCache`/`CacheIdentifier`.
 - The module root (`weather_tick.go`) uses `EncodeState`/`DecodeState`,
-  `TickPeriod`/`NextTickRound`/`CurrentRound`, `EmitAmbient`, `StripBuffs`.
+  `TickPeriod`/`NextTickRound`/`CurrentRound`, `EmitAmbient`, `StripBuffs`,
+  `CalendarShape`/`CalendarNow` (the seasons glue).
 - The module root (`weather_commands.go`, `weather_api.go`) calls
   `Reconcile`/`CurrentRound` after any state mutation.
 
@@ -67,9 +78,10 @@ module portable across GoMud and DOGMud.
 - `apply_test.go` covers `MutatorIdFor`, `applyChange`, `reconcileZone` via
   a fake `mutatorSet` (in-checkout unit test).
 - `clock_test.go` covers `TickPeriod` (pure, in-checkout).
-- `WorldReader`, `Reconcile`, and `EmitAmbient` are thin engine-glue
-  verified by the in-checkout build and boot smoke test. `Apply` itself is
-  exercised only through `applyChange`'s unit tests (no production caller).
+- `WorldReader`, `Reconcile`, `EmitAmbient`, and `CalendarShape`/`CalendarNow`
+  are thin engine-glue verified by the in-checkout build and boot smoke test.
+  `Apply` itself is exercised only through `applyChange`'s unit tests (no
+  production caller).
 - These tests compile only inside a GoMud checkout (engine imports).
 
 ## Build note

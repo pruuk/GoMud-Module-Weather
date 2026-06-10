@@ -24,6 +24,12 @@ making every run exactly reproducible from a seed.
   to the `"default"` profile); `DefaultClimate()` (built-in profiles for the
   standard biomes); `Config`/`DefaultConfig()` (front budget, spawn chance,
   history length, hard age cap, coverage falloff/threshold/radius).
+  `ClimateProfile.Track` names the season cycle the biome follows (e.g.
+  `"temperate"`); `""` means no seasons for that biome. This is inert data —
+  `Step` never reads it; the `seasons` package reads it to look up the right
+  track. Default bindings in `DefaultClimate()`: `plains`, `forest`,
+  `mountain`, `tundra`, `swamp`, `ocean` → `"temperate"`; `desert` and
+  `"default"` are unbound.
 - **tick.go**: `Step` — the simulation tick — and its helpers (`ageAndFeedback`,
   `moveFronts`, `evolveTypes`, `removeDead`, `spawnFronts`, `resolveWeather`,
   `zonesWithin`, `diffWeather`, weighted-pick helpers).
