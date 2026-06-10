@@ -115,3 +115,67 @@ func sectionLines(outdoor, indoor map[string][]string, biome string, useIndoor b
 	}
 	return lines
 }
+
+// SeasonalKey identifies one (track, season) ambience table.
+type SeasonalKey struct{ Track, Season string }
+
+// SeasonalTables holds the standalone seasonal-ambience emote tables — the
+// persistent voice of a season in CALM weather (the weather tables' seasonal
+// variants cover weathered moments). Loaded from emotes/seasons/.
+type SeasonalTables map[SeasonalKey]TableSection
+
+// seasonalEmoteFile mirrors the on-disk schema.
+type seasonalEmoteFile struct {
+	Track   string              `yaml:"track"`
+	Season  string              `yaml:"season"`
+	Outdoor map[string][]string `yaml:"outdoor"`
+	Indoor  map[string][]string `yaml:"indoor"`
+}
+
+// LoadSeasonalEmotes loads every *.yaml under dir, keyed by (track, season).
+// Missing dir = empty tables; the first malformed file aborts with an error
+// (caller fails soft). Requires both 'track' and 'season' keys.
+func LoadSeasonalEmotes(fsys fs.FS, dir string) (SeasonalTables, error) {
+	out := SeasonalTables{}
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return out, nil
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		b, err := fs.ReadFile(fsys, path.Join(dir, e.Name()))
+		if err != nil {
+			return out, fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		var f seasonalEmoteFile
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			return out, fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		if f.Track == "" || f.Season == "" {
+			return out, fmt.Errorf("%s: missing required 'track' or 'season' key", e.Name())
+		}
+		out[SeasonalKey{f.Track, f.Season}] = TableSection{Outdoor: f.Outdoor, Indoor: f.Indoor}
+	}
+	return out, nil
+}
+
+// Pick selects one seasonal-ambience line for the zone's exact (track,
+// season); "" when no table or no matching lines. Same biome/indoor fallback
+// and roll contract as the weather tables.
+func (st SeasonalTables) Pick(track, season, biome string, indoor bool, roll func(int) int) string {
+	sec, ok := st[SeasonalKey{track, season}]
+	if !ok {
+		return ""
+	}
+	lines := sectionLines(sec.Outdoor, sec.Indoor, biome, indoor)
+	if len(lines) == 0 {
+		return ""
+	}
+	i := roll(len(lines))
+	if i < 0 || i >= len(lines) {
+		i = 0
+	}
+	return lines[i]
+}

@@ -89,6 +89,53 @@ func TestPickClampsOutOfRangeRoll(t *testing.T) {
 	}
 }
 
+const winterAmbienceYAML = `track: temperate
+season: winter
+outdoor:
+  default:
+    - "A skin of ice creaks at the edges of still water."
+  forest:
+    - "Snow slides from a burdened bough with a soft thump."
+indoor:
+  default:
+    - "Cold radiates from the walls despite the shelter."
+`
+
+func TestLoadSeasonalEmotes(t *testing.T) {
+	fsys := fstest.MapFS{"emotes/seasons/temperate_winter.yaml": {Data: []byte(winterAmbienceYAML)}}
+	st, err := LoadSeasonalEmotes(fsys, "emotes/seasons")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := func(n int) int { return 0 }
+	if got := st.Pick("temperate", "winter", "forest", false, first); got != "Snow slides from a burdened bough with a soft thump." {
+		t.Errorf("forest outdoor: %q", got)
+	}
+	if got := st.Pick("temperate", "winter", "desert", false, first); got != "A skin of ice creaks at the edges of still water." {
+		t.Errorf("biome fallback: %q", got)
+	}
+	if got := st.Pick("temperate", "winter", "default", true, first); got != "Cold radiates from the walls despite the shelter." {
+		t.Errorf("indoor: %q", got)
+	}
+	if got := st.Pick("temperate", "summer", "default", false, first); got != "" {
+		t.Errorf("missing season must be silent: %q", got)
+	}
+	if got := st.Pick("monsoon", "winter", "default", false, first); got != "" {
+		t.Errorf("missing track must be silent: %q", got)
+	}
+}
+
+func TestLoadSeasonalEmotesValidation(t *testing.T) {
+	bad := fstest.MapFS{"emotes/seasons/x.yaml": {Data: []byte("season: winter\noutdoor:\n  default: [\"x\"]\n")}}
+	if _, err := LoadSeasonalEmotes(bad, "emotes/seasons"); err == nil {
+		t.Fatal("missing track must be rejected")
+	}
+	empty, err := LoadSeasonalEmotes(fstest.MapFS{}, "emotes/seasons")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("missing dir: want empty/nil, got %v %v", empty, err)
+	}
+}
+
 func TestPickSeasonalVariant(t *testing.T) {
 	tables := loadTestTables(t)
 	first := func(n int) int { return 0 }
