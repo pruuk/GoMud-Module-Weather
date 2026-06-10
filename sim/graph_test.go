@@ -121,6 +121,19 @@ func TestNeighborsIndexRebuiltAfterDecode(t *testing.T) {
 	}
 }
 
+func TestFindZone(t *testing.T) {
+	g := &Graph{Nodes: map[string]ZoneNode{"Frostfang": {Zone: "Frostfang"}}}
+	if z, ok := g.FindZone("Frostfang"); !ok || z != "Frostfang" {
+		t.Errorf("exact match failed: %q %v", z, ok)
+	}
+	if z, ok := g.FindZone("frostFANG"); !ok || z != "Frostfang" {
+		t.Errorf("case-insensitive match failed: %q %v", z, ok)
+	}
+	if _, ok := g.FindZone("nowhere"); ok {
+		t.Error("missing zone must not match")
+	}
+}
+
 func TestGraphZones(t *testing.T) {
 	g := &Graph{Nodes: map[string]ZoneNode{
 		"B": {Zone: "B"}, "A": {Zone: "A"}, "C": {Zone: "C"},

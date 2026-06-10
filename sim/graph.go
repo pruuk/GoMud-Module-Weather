@@ -3,6 +3,7 @@ package sim
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 )
 
 // GraphVersion is bumped whenever the on-disk cache format changes, so a
@@ -75,6 +76,20 @@ func (g *Graph) Neighbors(z string) []Edge {
 		g.buildAdjacency()
 	}
 	return g.adj[z]
+}
+
+// FindZone resolves a zone name case-insensitively to its canonical graph key.
+// An exact match wins; otherwise the first case-insensitive match is returned.
+func (g *Graph) FindZone(name string) (string, bool) {
+	if _, ok := g.Nodes[name]; ok {
+		return name, true
+	}
+	for _, z := range g.Zones() {
+		if strings.EqualFold(z, name) {
+			return z, true
+		}
+	}
+	return "", false
 }
 
 // buildAdjacency indexes Edges by zone, both orientations. Called lazily from
