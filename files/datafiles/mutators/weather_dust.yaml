@@ -1,0 +1,11 @@
+mutatorid: weather-dust
+namemodifier:
+  behavior: append
+  text: (dust-choked)
+  colorpattern: brown
+descriptionmodifier:
+  behavior: append
+  text: Wind-borne dust scours the air and grits between your teeth.
+  colorpattern: brown
+lightmod: -1
+decayrate: 3 hours

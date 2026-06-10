@@ -1,0 +1,11 @@
+mutatorid: weather-fog
+namemodifier:
+  behavior: append
+  text: (foggy)
+  colorpattern: gray
+descriptionmodifier:
+  behavior: append
+  text: A thick fog smothers everything beyond arm's reach.
+  colorpattern: gray
+lightmod: -1
+decayrate: 3 hours

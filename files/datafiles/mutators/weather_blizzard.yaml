@@ -1,0 +1,16 @@
+mutatorid: weather-blizzard
+namemodifier:
+  behavior: append
+  text: (blizzard)
+  colorpattern: frost
+descriptionmodifier:
+  behavior: append
+  text: A howling blizzard whites out the world; the cold bites to the bone.
+  colorpattern: frost
+alertmodifier:
+  text: A blizzard rages here!
+  colorpattern: frost
+lightmod: -1
+playerbuffids: [ 31 ] # engine "Freezing Snow" (curated default; BuffsEnabled toggles)
+decayrate: 2 hours
+decayintoid: weather-snow

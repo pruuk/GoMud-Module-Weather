@@ -1,0 +1,15 @@
+mutatorid: weather-storm
+namemodifier:
+  behavior: append
+  text: (storm-wracked)
+  colorpattern: mute-dblue
+descriptionmodifier:
+  behavior: append
+  text: Rain lashes down in sheets and thunder rolls across the sky.
+  colorpattern: mute-dblue
+alertmodifier:
+  text: A storm rages overhead.
+  colorpattern: mute-dblue
+lightmod: -1
+decayrate: 3 hours
+decayintoid: weather-rain

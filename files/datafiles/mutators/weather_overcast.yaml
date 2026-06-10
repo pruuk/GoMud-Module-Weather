@@ -1,0 +1,12 @@
+# Weather module: orchestrator-driven (no respawnrate). decayrate is the
+# self-heal safety net only — the weather engine normally removes this first.
+mutatorid: weather-overcast
+namemodifier:
+  behavior: append
+  text: (overcast)
+  colorpattern: gray
+descriptionmodifier:
+  behavior: append
+  text: A flat gray ceiling of cloud hangs low overhead.
+  colorpattern: gray
+decayrate: 6 hours

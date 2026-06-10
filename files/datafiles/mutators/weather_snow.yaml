@@ -1,0 +1,11 @@
+mutatorid: weather-snow
+namemodifier:
+  behavior: append
+  text: (snowing)
+  colorpattern: frost
+descriptionmodifier:
+  behavior: append
+  text: Snow drifts down steadily, softening every edge in white.
+  colorpattern: frost
+decayrate: 4 hours
+decayintoid: weather-overcast

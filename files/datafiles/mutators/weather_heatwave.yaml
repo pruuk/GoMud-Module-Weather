@@ -1,0 +1,11 @@
+mutatorid: weather-heatwave
+namemodifier:
+  behavior: append
+  text: (sweltering)
+  colorpattern: embers
+descriptionmodifier:
+  behavior: append
+  text: The air shimmers with oppressive, relentless heat.
+  colorpattern: embers
+playerbuffids: [ 33 ] # engine "Thirsty" (curated default; BuffsEnabled toggles)
+decayrate: 6 hours
