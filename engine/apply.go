@@ -33,7 +33,10 @@ func MutatorIdFor(w sim.WeatherType) string {
 // applyChange applies one zone weather transition. Add is guarded by Has
 // because MutatorList.Add appends a duplicate entry when the mutator is
 // already live. Returns false when the target spec id is unknown (data file
-// missing or failed to load).
+// missing or failed to load). Weather specs must not carry decayintoid: the
+// engine's Remove resets SpawnedRound and runs Update, whose decay branch
+// would instantly resurrect the entry as the decay target (a shipped-data
+// test enforces this).
 func applyChange(ms mutatorSet, from, to sim.WeatherType) bool {
 	if id := MutatorIdFor(from); id != "" {
 		ms.Remove(id)
@@ -118,6 +121,8 @@ func Reconcile(weather map[sim.ZoneId]sim.WeatherType) {
 // StripBuffs clears the buff id lists on every loaded weather-* mutator spec —
 // the BuffsEnabled=false path. GetMutatorSpec returns the registry's live
 // pointer, so this affects all future applications. Returns the count stripped.
+// Boot-time only: there is no restore path, so re-enabling buffs requires a
+// reload.
 func StripBuffs() int {
 	n := 0
 	for _, id := range mutators.GetAllMutatorIds() {

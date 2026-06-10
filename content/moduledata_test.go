@@ -91,6 +91,9 @@ func TestShippedMutatorSpecs(t *testing.T) {
 		if _, has := spec["respawnrate"]; has {
 			t.Errorf("%s: weather mutators must not set respawnrate", e.Name())
 		}
+		if _, has := spec["decayintoid"]; has {
+			t.Errorf("%s: decayintoid is forbidden — upstream MutatorList.Remove instantly resurrects the entry as the decay target (no liveness guard in Mutator.Update), corrupting orchestrator-driven transitions", e.Name())
+		}
 		if _, has := spec["decayrate"]; !has {
 			t.Errorf("%s: weather mutators must set decayrate (self-heal safety net)", e.Name())
 		}

@@ -14,4 +14,3 @@ alertmodifier:
 lightmod: -1
 playerbuffids: [ 31 ] # engine "Freezing Snow" (curated default; BuffsEnabled toggles)
 decayrate: 2 hours
-decayintoid: weather-snow

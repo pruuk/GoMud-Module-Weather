@@ -17,7 +17,7 @@
 The executor should trust these — they were re-verified against upstream source (NOT the DOGMud fork) specifically for this plan. Paths are relative to the GoMud checkout at `~/workspace/GoMud`.
 
 1. **`mutators.MutatorSpec`** (`internal/mutators/mutators.go:56`): `MutatorId string`; `NameModifier`/`DescriptionModifier`/`AlertModifier *TextModifier` (`{Behavior, Text, ColorPattern}`, alert is append-only by engine design); `DecayIntoId string`; `PlayerBuffIds`/`MobBuffIds`/`NativeBuffIds []int`; `DecayRate string`; `RespawnRate string`; `LightMod int`; `Exits`; `Pvp`; `Tags []string`. (No `RegenMultiplier` — the spec §5.4 mention of it is stale; we don't need it.)
-2. **`mutators.MutatorList`** methods: `Add(name) bool` (false if the spec id is unknown; **appends a duplicate if the mutator is already live** — always check `Has` first), `Remove(name) bool`, `Has(name) bool`, `GetActive() MutatorList`, `Update(round)`. A removed mutator with no `RespawnRate` is purged from the list by `Update`.
+2. **`mutators.MutatorList`** methods: `Add(name) bool` (false if the spec id is unknown; **appends a duplicate if the mutator is already live** — always check `Has` first), `Remove(name) bool`, `Has(name) bool`, `GetActive() MutatorList`, `Update(round)`. A removed mutator with no `RespawnRate` is purged from the list by `Update`. CORRECTION (found in M3 execution, empirically verified): Remove() resets SpawnedRound to 0 and immediately runs Update(), whose decay branch has no liveness guard — any spec with decayintoid is instantly resurrected as its decay target on Remove. Weather specs therefore must NOT set decayintoid; decayrate alone despawns and purges cleanly.
 3. **Modules can ship mutator specs.** `main.go:199` wires `mutators.RegisterFS(plugins.GetPluginRegistry())`; `internal/mutators/plugin.go` merges any `mutators/*.yaml` found in plugin filesystems into the registry at `LoadDataFiles()` (duplicate ids are rejected with an error log). `plugin.AttachFileSystem` (`internal/plugins/plugins.go:345`) registers embedded paths **stripping everything up to and including `datafiles/`** — so our embedded `files/datafiles/mutators/weather_storm.yaml` is visible as `mutators/weather_storm.yaml`. **Filename rule:** the loader requires the path to end with `util.ConvertForFilename(MutatorId) + ".yaml"`, which lowercases and converts every non-`[a-z0-9]` rune to `_` — id `weather-storm` ⇒ file `weather_storm.yaml` (precedent: default world's `forest_mist.yaml` with `mutatorid: forest-mist`).
 4. **Module-shipped buff specs also landed upstream** (`internal/buffs/plugin.go`, wired in `main.go:200`) — the spec's R-core-1 contingency is now real. We still **reuse existing engine buff ids for M3** (31 `freezing_snow`, 33 `thirsty` — verified present in `_datafiles/world/default/buffs/`) because numeric-id collision policy is unresolved upstream; bespoke weather buffs become an M4 option.
 5. **Zone-wide application:** `rooms.GetZoneConfig(zone) *ZoneConfig` (`internal/rooms/roommanager.go:581`); `ZoneConfig.Mutators mutators.MutatorList` applies to the whole zone; the engine hook `UpdateZoneMutators` (`internal/hooks/NewRound_UpdateZoneMutators.go`) calls `Mutators.Update(round)` for every zone with mutators each `NewRound`; renders merge zone+room mutators live. Zone configs are written to disk **only by explicit admin zone-edit actions** — runtime-added mutators are in-memory and vanish on reboot, hence the Reconcile-on-boot step in this plan.
@@ -38,7 +38,7 @@ The executor should trust these — they were re-verified against upstream sourc
   - **`PrevailingWind`** stays deferred (needs directional edge metadata from a future crawler pass — see `sim/context.md`).
   - **No climate YAML files ship in M3** — `sim.DefaultClimate()` covers the standard biomes. The *loader* ships now (so builders can drop `files/datafiles/climate/<biome>.yaml` and rebuild); M4 may externalize the defaults.
 - **Presentation randomness never touches the sim RNG.** Emote line selection uses `util.Rand` (engine) via an injected `roll func(int) int`. Consuming the sim RNG for prose would perturb the deterministic weather trace.
-- **One weather mutator per zone, namespaced `weather-<type>`.** `clear` (and the unset `""`) map to *no* mutator. The applier is the orchestrator (authoritative add/remove); the specs' `decayrate`/`decayintoid` are the §9.2 self-heal safety net only — **no `respawnrate` ever** (it would fight the orchestrator and prevent purge-on-remove).
+- **One weather mutator per zone, namespaced `weather-<type>`.** `clear` (and the unset `""`) map to *no* mutator. The applier is the orchestrator (authoritative add/remove); the specs' `decayrate` is the §9.2 self-heal safety net only — **no `respawnrate` ever** (it would fight the orchestrator and prevent purge-on-remove) and **no `decayintoid` ever** (the engine's Remove would instantly resurrect the entry as the decay target — see Verified facts #2). Because `decayrate` also fires during normal operation when a weather spell outlasts it, the tick path calls `engine.Reconcile` (not just `Apply`) every tick so engine-side decay drift self-corrects within one tick.
 - **Reconcile on boot.** Persisted sim state is restored, then `engine.Reconcile` forces every zone's live `weather-*` mutators to match it (zone mutators don't survive reboots; an admin zone-save could also leave strays).
 - **`yaml.v2` in pure packages is allowed.** The purity rule (arch tests) forbids `GoMudEngine/GoMud/internal` imports — engine independence, not zero-deps. `gopkg.in/yaml.v2` is in the engine's go.mod (used by `internal/mutators` itself), so in-checkout builds are unaffected; the standalone repo's dev `go.mod` gains the dependency.
 - **State persistence wraps `sim.State` in a versioned envelope in `engine/`** (`{version, state}`) rather than adding a version field to `sim.State` — sim stays untouched, and stale formats are detected and discarded (fresh seed) like the graph cache.
@@ -1100,7 +1100,7 @@ git commit -m "feat(content): emote tables with biome/indoor fallback selection"
 
 ## Task 8: Weather mutator spec data files
 
-Eight specs — one per non-clear weather type in `sim.DefaultClimate()` (`overcast`, `rain`, `storm`, `fog`, `snow`, `blizzard`, `dust`, `heatwave`). Conventions verified against upstream (fact 3): id `weather-<type>`, filename `weather_<type>.yaml`, **no `respawnrate`**, `decayrate`/`decayintoid` as the §9.2 safety net. Buffs: blizzard → 31 (Freezing Snow), heatwave → 33 (Thirsty), players only — the gentle curated default of §9.5; everything else is flavor + light.
+Eight specs — one per non-clear weather type in `sim.DefaultClimate()` (`overcast`, `rain`, `storm`, `fog`, `snow`, `blizzard`, `dust`, `heatwave`). Conventions verified against upstream (fact 3): id `weather-<type>`, filename `weather_<type>.yaml`, **no `respawnrate`**, `decayrate` as the §9.2 safety net (no `decayintoid` — see Verified facts #2). Buffs: blizzard → 31 (Freezing Snow), heatwave → 33 (Thirsty), players only — the gentle curated default of §9.5; everything else is flavor + light.
 
 **Files:** Create `files/datafiles/mutators/weather_overcast.yaml`, `weather_rain.yaml`, `weather_storm.yaml`, `weather_fog.yaml`, `weather_snow.yaml`, `weather_blizzard.yaml`, `weather_dust.yaml`, `weather_heatwave.yaml`. Also create `content/moduledata_test.go` to validate them.
 
@@ -1210,7 +1210,6 @@ descriptionmodifier:
   text: A steady rain falls, pattering off every surface.
   colorpattern: blue
 decayrate: 4 hours
-decayintoid: weather-overcast
 ```
 
 `files/datafiles/mutators/weather_storm.yaml`:
@@ -1230,7 +1229,6 @@ alertmodifier:
   colorpattern: mute-dblue
 lightmod: -1
 decayrate: 3 hours
-decayintoid: weather-rain
 ```
 
 `files/datafiles/mutators/weather_fog.yaml`:
@@ -1262,7 +1260,6 @@ descriptionmodifier:
   text: Snow drifts down steadily, softening every edge in white.
   colorpattern: frost
 decayrate: 4 hours
-decayintoid: weather-overcast
 ```
 
 `files/datafiles/mutators/weather_blizzard.yaml`:
@@ -1283,7 +1280,6 @@ alertmodifier:
 lightmod: -1
 playerbuffids: [ 31 ] # engine "Freezing Snow" (curated default; BuffsEnabled toggles)
 decayrate: 2 hours
-decayintoid: weather-snow
 ```
 
 `files/datafiles/mutators/weather_dust.yaml`:
@@ -2434,7 +2430,8 @@ func (m *weatherModule) loadOrInitState(round uint64) {
 func (m *weatherModule) tick(round uint64) {
 	next, diff := sim.Step(m.state, m.graph, m.climate, m.simCfg, sim.Clock{Round: round})
 	m.state = next
-	engine.Apply(diff)
+	_ = diff // per-zone changes are implied by the reconcile below
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 }
@@ -2476,6 +2473,8 @@ func (m *weatherModule) scheduleEmote(round uint64) {
 	m.nextEmote = round + uint64(delta)
 }
 ```
+
+(Reconcile supersedes Apply on the tick path: it re-asserts mutators that engine-side decayrate dropped between ticks. Apply(diff) remains the right call for the command paths — spawn/clear — where the previous tick's reconcile guarantees a clean baseline.)
 
 - [ ] **Step 3: Stub the not-yet-written references so the package compiles** — `registerExports` and the `cmdWeather` rework land in Tasks 16–17. For THIS task's commit, add a minimal `registerExports` placeholder in `weather_tick.go`... **No — placeholders are forbidden.** Instead: implement Tasks 15–17 as one *build unit* but keep commits separate by writing this task's files now and running the build only at the end of Task 17 if `go build` fails here. Practical sequencing: complete Steps 1–2 above, then immediately do Task 16 and Task 17, then run the verification step below once — committing each task's files separately in order (`git add` only that task's files). The existing `cmdWeather` from M1b still compiles against this task alone, and `registerExports` arrives in Task 17 — so after Task 15 alone the build FAILS on the one `m.registerExports()` call. Acceptable mid-sequence state; do NOT push between these commits.
 

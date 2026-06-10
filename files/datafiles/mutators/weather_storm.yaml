@@ -13,4 +13,3 @@ alertmodifier:
   colorpattern: mute-dblue
 lightmod: -1
 decayrate: 3 hours
-decayintoid: weather-rain

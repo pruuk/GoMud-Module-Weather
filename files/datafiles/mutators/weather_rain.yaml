@@ -8,4 +8,3 @@ descriptionmodifier:
   text: A steady rain falls, pattering off every surface.
   colorpattern: blue
 decayrate: 4 hours
-decayintoid: weather-overcast
