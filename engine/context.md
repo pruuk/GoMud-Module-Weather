@@ -36,8 +36,9 @@ module portable across GoMud and DOGMud.
   today (M4's per-room refinement is its likely consumer).
   **`Reconcile(weather map)`** forces every zone in the map to match
   the resolved weather — used at boot, after state restore, and after a graph
-  rebuild. `Reconcile` is the single path by which module state reaches engine
-  mutators (tick, commands, exports, post-rebuild): because specs carry
+  rebuild. `Reconcile` is the single path by which WEATHER state reaches
+  engine mutators (tick, commands, exports, post-rebuild) — `ReconcileSeasons`
+  below is its counterpart for the season namespace: because specs carry
   `decayrate`, a bare diff-apply would let engine-side decay drift persist.
   **`SeasonMutatorPrefix`** (`"season-"`) namespaces seasonal-ambience mutators;
   independent of `WeatherMutatorPrefix` — the two reconcile layers never touch
