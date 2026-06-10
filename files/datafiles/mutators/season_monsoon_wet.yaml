@@ -1,0 +1,6 @@
+mutatorid: season-monsoon-wet
+descriptionmodifier:
+  behavior: append
+  text: The wet season saturates everything; the ground squelches and the air drips.
+  colorpattern: mute-dblue
+decayrate: 24 hours

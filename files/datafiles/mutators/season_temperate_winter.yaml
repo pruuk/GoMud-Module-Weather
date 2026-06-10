@@ -1,0 +1,9 @@
+# Seasonal ambience layer (S2): description-only by design — room titles
+# already carry weather tags (spec S-R2). Buffs/exits are builder seams:
+# add playerbuffids/exits in a world-specific override of this spec.
+mutatorid: season-temperate-winter
+descriptionmodifier:
+  behavior: append
+  text: Winter holds the land; frost rims every edge and breath hangs in the air.
+  colorpattern: frost
+decayrate: 24 hours

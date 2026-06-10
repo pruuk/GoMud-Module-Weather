@@ -59,6 +59,24 @@ func TestLoadClimateMergesOverDefaults(t *testing.T) {
 	}
 }
 
+func TestParseClimateTrack(t *testing.T) {
+	_, p, err := ParseClimate([]byte("biome: jungle\ntrack: monsoon\nweather:\n  rain: 5\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Track != "monsoon" {
+		t.Errorf("track not parsed: %q", p.Track)
+	}
+	// Omitted track stays empty (unbound).
+	_, p2, err := ParseClimate([]byte("biome: cave\nweather:\n  clear: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p2.Track != "" {
+		t.Errorf("omitted track should be empty: %q", p2.Track)
+	}
+}
+
 func TestLoadClimateMissingDirIsDefaults(t *testing.T) {
 	c, err := LoadClimate(fstest.MapFS{}, "climate")
 	if err != nil {

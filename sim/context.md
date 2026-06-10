@@ -24,6 +24,18 @@ making every run exactly reproducible from a seed.
   to the `"default"` profile); `DefaultClimate()` (built-in profiles for the
   standard biomes); `Config`/`DefaultConfig()` (front budget, spawn chance,
   history length, hard age cap, coverage falloff/threshold/radius).
+  `ClimateProfile.Track` names the season cycle the biome follows (e.g.
+  `"temperate"`); `""` means no seasons for that biome. This is inert data —
+  `Step` never reads it; the `seasons` package reads it to look up the right
+  track. Default bindings in `DefaultClimate()`: `plains`, `forest`,
+  `mountain`, `tundra`, `swamp`, `ocean` → `"temperate"`; `desert` and
+  `"default"` are unbound. **S2 expansion:** `mountains`, `cliffs`, `snow`,
+  `shore`, `water`, `farmland`, `land`, `road`, `city`, `fort`, `slums`
+  (the actual outdoor biome ids used by the stock GoMud world) are now also
+  bound to `"temperate"` with appropriate profiles, so most outdoor stock zones
+  participate in both weather and seasonal mutator reconciliation. Indoor-ish
+  ids (`cave`, `dungeon`, `house`, `spiderweb`) remain absent and fall through
+  to the bland `"default"` profile.
 - **tick.go**: `Step` — the simulation tick — and its helpers (`ageAndFeedback`,
   `moveFronts`, `evolveTypes`, `removeDead`, `spawnFronts`, `resolveWeather`,
   `zonesWithin`, `diffWeather`, weighted-pick helpers).

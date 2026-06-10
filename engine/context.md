@@ -27,17 +27,42 @@ module portable across GoMud and DOGMud.
   fake at this interface). `MutatorIdFor` maps a weather type to its
   `weather-*` mutator id ("" for calm). `applyChange` (Has-guard because
   `MutatorList.Add` appends duplicates when the mutator is already live).
-  `reconcileZone` (forces exact match between live weather-* mutators and the
-  target type). `Apply(diff)` walks a `StateDiff` and calls `applyChange` for
+  **`reconcileZone(ms, current []string, want string) bool`** — prefix-agnostic
+  core: removes every id in `current` except `want`, then adds `want` if absent
+  (`""` = remove all). Both reconcile layers call it; each caller gathers only
+  its own prefix so the two namespaces never touch each other's ids.
+  `Apply(diff)` walks a `StateDiff` and calls `applyChange` for
   each zone — an exported low-level primitive with **no production caller**
   today (M4's per-room refinement is its likely consumer).
   **`Reconcile(weather map)`** forces every zone in the map to match
   the resolved weather — used at boot, after state restore, and after a graph
-  rebuild. `Reconcile` is the single path by which module state reaches engine
-  mutators (tick, commands, exports, post-rebuild): because specs carry
+  rebuild. `Reconcile` is the single path by which WEATHER state reaches
+  engine mutators (tick, commands, exports, post-rebuild) — `ReconcileSeasons`
+  below is its counterpart for the season namespace: because specs carry
   `decayrate`, a bare diff-apply would let engine-side decay drift persist.
-  `StripBuffs()` clears buff id lists on all loaded `weather-*` specs — boot-time
-  only, no restore path. `warnedMutators` warn-once map (safe on single goroutine).
+  **`SeasonMutatorPrefix`** (`"season-"`) namespaces seasonal-ambience mutators;
+  independent of `WeatherMutatorPrefix` — the two reconcile layers never touch
+  each other's ids. **`SeasonMutatorId(track, season string) string`** maps a
+  zone's resolved `(track, season)` to its mutator id; `""` when either part is
+  empty (no seasonal mutator). **`ReconcileSeasons(g, zoneSeasons)`** forces
+  every zone's `season-*` mutators to match its resolved season; zones **absent
+  from the map** (unbound biomes) get their `season-*` mutators removed, so a
+  zone whose biome loses its track binding heals automatically.
+  `warnUnknownSeasonMutator` is a warn-once guard (same pattern as
+  `warnedMutators`) for missing season specs.
+  `StripBuffs()` clears buff id lists on all loaded **`weather-*` and
+  `season-*`** specs — covers both namespaces; boot-time only, no restore path.
+  `warnedMutators` warn-once map (safe on single goroutine).
+- **calendar.go**: `CalendarShape() (monthsPerYear, daysPerYear int)` — reads
+  the active calendar name from `gametime.GetDate().Calendar`, resolves its
+  shape via `gametime.GetCalendar`, and falls back to the `"default"` calendar
+  if the named one is absent or invalid. Returns `(0, 0)` when no usable
+  calendar exists — the caller (`loadSeasons`) treats a zero shape as "seasons
+  off". `CalendarNow() seasons.CalendarPos` — the current day-of-year for
+  season resolution (`GameDate.Day` is 1-based and the engine subtracts whole
+  years, so it is already the day-of-year). `DaysPerYear` is sourced from the
+  same calendar shape lookup rather than from `GameDate.DaysPerYear` directly,
+  ensuring consistency with `CalendarShape`.
 - **clock.go**: `TickPeriod(hours int) string` — renders game-hour count as a
   `gametime.AddPeriod` period string; values < 1 clamp to 1. `NextTickRound`
   returns the round number one period from now. `CurrentRound` exposes
@@ -51,12 +76,13 @@ module portable across GoMud and DOGMud.
 ## Dependencies
 - `internal/rooms`, `internal/mutators`, `internal/gametime`, `internal/util`,
   `internal/mudlog` (engine).
-- `github.com/GoMudEngine/GoMud/modules/weather/{sim,crawler,content}` — pure types.
+- `github.com/GoMudEngine/GoMud/modules/weather/{sim,crawler,content,seasons}` — pure types.
 
 ## Consumers
 - The module root (`weather.go`) uses `NewWorldReader()`, `DecodeCache`/`CacheIdentifier`.
 - The module root (`weather_tick.go`) uses `EncodeState`/`DecodeState`,
-  `TickPeriod`/`NextTickRound`/`CurrentRound`, `EmitAmbient`, `StripBuffs`.
+  `TickPeriod`/`NextTickRound`/`CurrentRound`, `EmitAmbient`, `StripBuffs`,
+  `CalendarShape`/`CalendarNow` (the seasons glue).
 - The module root (`weather_commands.go`, `weather_api.go`) calls
   `Reconcile`/`CurrentRound` after any state mutation.
 
@@ -64,12 +90,14 @@ module portable across GoMud and DOGMud.
 - `cache_test.go` covers `DecodeCache` (pure).
 - `worldreader_test.go` covers `isOutdoorBiome`.
 - `state_test.go` covers `EncodeState`/`DecodeState` (pure, in-checkout).
-- `apply_test.go` covers `MutatorIdFor`, `applyChange`, `reconcileZone` via
+- `apply_test.go` covers `MutatorIdFor`, `applyChange`, `reconcileZone`,
+  `SeasonMutatorId`, and `ReconcileSeasons` (season namespace isolation) via
   a fake `mutatorSet` (in-checkout unit test).
 - `clock_test.go` covers `TickPeriod` (pure, in-checkout).
-- `WorldReader`, `Reconcile`, and `EmitAmbient` are thin engine-glue
-  verified by the in-checkout build and boot smoke test. `Apply` itself is
-  exercised only through `applyChange`'s unit tests (no production caller).
+- `WorldReader`, `Reconcile`, `EmitAmbient`, and `CalendarShape`/`CalendarNow`
+  are thin engine-glue verified by the in-checkout build and boot smoke test.
+  `Apply` itself is exercised only through `applyChange`'s unit tests (no
+  production caller).
 - These tests compile only inside a GoMud checkout (engine imports).
 
 ## Build note

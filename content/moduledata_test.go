@@ -60,8 +60,9 @@ func TestShippedEmoteTables(t *testing.T) {
 }
 
 // TestShippedMutatorSpecs validates the data files the engine will load:
-// parseable YAML, weather- namespaced ids, loader-compatible filenames, no
-// respawnrate (it would fight the orchestrator and block purge-on-remove).
+// parseable YAML, weather- or season- namespaced ids, loader-compatible
+// filenames, no respawnrate (it would fight the orchestrator and block
+// purge-on-remove).
 func TestShippedMutatorSpecs(t *testing.T) {
 	dir := "../files/datafiles/mutators"
 	entries, err := os.ReadDir(dir)
@@ -82,8 +83,8 @@ func TestShippedMutatorSpecs(t *testing.T) {
 			continue
 		}
 		id, _ := spec["mutatorid"].(string)
-		if !strings.HasPrefix(id, "weather-") {
-			t.Errorf("%s: mutatorid %q must be weather- namespaced", e.Name(), id)
+		if !strings.HasPrefix(id, "weather-") && !strings.HasPrefix(id, "season-") {
+			t.Errorf("%s: mutatorid %q must be weather- or season- namespaced", e.Name(), id)
 		}
 		if want := fileNameFor(id); e.Name() != want {
 			t.Errorf("%s: engine loader requires filename %q for id %q", e.Name(), want, id)
@@ -97,5 +98,8 @@ func TestShippedMutatorSpecs(t *testing.T) {
 		if _, has := spec["decayrate"]; !has {
 			t.Errorf("%s: weather mutators must set decayrate (self-heal safety net)", e.Name())
 		}
+	}
+	if len(entries) < 14 { // 8 weather + 6 season specs
+		t.Errorf("expected at least 14 shipped mutator specs, found %d", len(entries))
 	}
 }
