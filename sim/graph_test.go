@@ -27,6 +27,7 @@ func TestGraphJSONRoundTrip(t *testing.T) {
 		t.Fatalf("FromJSON: %v", err)
 	}
 
+	// adj is unexported and never populated in this test, so DeepEqual is safe.
 	if !reflect.DeepEqual(g, got) {
 		t.Errorf("round trip mismatch:\n want %+v\n got  %+v", g, got)
 	}
@@ -92,6 +93,11 @@ func TestNeighborsUsesStableIndex(t *testing.T) {
 	}
 	if g.Neighbors("missing") != nil {
 		t.Error("unknown zone should return nil")
+	}
+
+	g2 := &Graph{Nodes: map[string]ZoneNode{"L": {Zone: "L"}}}
+	if g2.Neighbors("L") != nil {
+		t.Error("known zone with no edges should return nil")
 	}
 }
 

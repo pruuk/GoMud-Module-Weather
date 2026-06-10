@@ -166,7 +166,7 @@ func (m *weatherModule) printGraphForZone(user *users.UserRecord, zone string) {
 	sendLine(user, fmt.Sprintf(
 		"Zone %s [biome=%s rooms=%d outdoor=%v]:", node.Zone, node.Biome, node.Rooms, node.HasOutdoor))
 
-	neighbors := m.graph.Neighbors(zone)
+	neighbors := append([]sim.Edge(nil), m.graph.Neighbors(zone)...)
 	if len(neighbors) == 0 {
 		sendLine(user, "  (no adjacent zones)")
 		return
