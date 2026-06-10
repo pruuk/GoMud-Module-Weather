@@ -11,3 +11,8 @@ Screenshot*.jpg
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Claude Code session artifacts (worktrees, local settings)
+.claude/
+.claire/
+CLAUDE.local.md
