@@ -603,18 +603,18 @@ All keys under `Modules.weather.*`, defaults shipped in `files/data-overlays/con
 | Key | Default | Meaning |
 |---|---|---|
 | `Enabled` | `true` | Master switch. |
-| `Seed` | `0` (→ derived from world name) | RNG seed for reproducibility. |
+| `Seed` | `0` (→ derived from the world's zone names) | RNG seed for reproducibility. |
 | `TickEveryGameHours` | `1` | Weather-simulation cadence. |
-| `MaxActiveFronts` | `8` | Global front budget. |
-| `SpawnRateScale` | `1.0` | Multiplier on spawn pressure. |
-| `PrevailingWind` | `""` | Optional movement bias (e.g. `"east"`); empty = unbiased. |
-| `PerRoomRefinement` | `occupied` | `occupied` \| `all` \| `off` — indoor/biome variant granularity. |
+| `MaxActiveFronts` | `8` | Global front budget (minimum 1). |
+| `SpawnRateScale` | `1.0` | Multiplier on spawn pressure (0 stops new fronts). |
+| `PrevailingWind` | `""` | *(deferred — needs directional edge metadata; not yet a config key)* Optional movement bias. |
+| `PerRoomRefinement` | `occupied` | *(M4 — not yet a config key)* indoor/biome variant granularity. |
 | `IncludeSecretExits` | `true` | Crawler counts secret/locked exits as adjacency. |
-| `ExcludeZonePatterns` | `["instance_*","ephemeral_*"]` | Zones the crawler skips. |
+| `ExcludeZonePatterns` | `["instance_*","ephemeral_*"]` | *(crawler-internal default; not yet a config key)* Zones the crawler skips. |
 | `EmoteMode` | `module` | `module` (we emit) \| `tag-only` (builders react to tags). |
-| `EmoteEveryRounds` | `20` | Ambient emote cadence (jittered). |
-| `Buffs.Enabled` | `true` | Apply curated default buffs. |
-| `Buffs.Overrides` | `{}` | Map `weatherType -> []buffId` to replace defaults. |
+| `EmoteEveryRounds` | `20` | Ambient emote cadence (jittered ±25%, minimum 5). |
+| `BuffsEnabled` | `true` | Apply curated default buffs. *(Flat key — M3 finding: plugin config reads flattened scalar leaves, so nested `Buffs.Enabled` became `BuffsEnabled`.)* |
+| `Buffs.Overrides` | `{}` | *(M4 — not yet a config key)* Map `weatherType -> []buffId` to replace defaults. |
 | `Persist` | `true` | Save/restore fronts + RNG across reboots. |
 | `RebuildGraphOnBoot` | `false` | Force a fresh crawl each boot (else use cache if present). |
 

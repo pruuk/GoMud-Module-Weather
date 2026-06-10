@@ -29,7 +29,9 @@ module portable across GoMud and DOGMud.
   `MutatorList.Add` appends duplicates when the mutator is already live).
   `reconcileZone` (forces exact match between live weather-* mutators and the
   target type). `Apply(diff)` walks a `StateDiff` and calls `applyChange` for
-  each zone. **`Reconcile(weather map)`** forces every zone in the map to match
+  each zone — an exported low-level primitive with **no production caller**
+  today (M4's per-room refinement is its likely consumer).
+  **`Reconcile(weather map)`** forces every zone in the map to match
   the resolved weather — used at boot, after state restore, and after a graph
   rebuild. `Reconcile` is the single path by which module state reaches engine
   mutators (tick, commands, exports, post-rebuild): because specs carry
@@ -65,8 +67,9 @@ module portable across GoMud and DOGMud.
 - `apply_test.go` covers `MutatorIdFor`, `applyChange`, `reconcileZone` via
   a fake `mutatorSet` (in-checkout unit test).
 - `clock_test.go` covers `TickPeriod` (pure, in-checkout).
-- `WorldReader`, `Apply`/`Reconcile`, and `EmitAmbient` are thin engine-glue
-  verified by the in-checkout build and boot smoke test.
+- `WorldReader`, `Reconcile`, and `EmitAmbient` are thin engine-glue
+  verified by the in-checkout build and boot smoke test. `Apply` itself is
+  exercised only through `applyChange`'s unit tests (no production caller).
 - These tests compile only inside a GoMud checkout (engine imports).
 
 ## Build note

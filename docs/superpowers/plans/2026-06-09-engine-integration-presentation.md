@@ -2490,7 +2490,7 @@ func (m *weatherModule) scheduleEmote(round uint64) {
 }
 ```
 
-(Reconcile supersedes Apply everywhere module state reaches the engine — tick, spawn/clear commands, exported SpawnFront, and post-rebuild — so engine-side decayrate drift always self-corrects and there is exactly one application path. Apply(diff) survives only as the tested low-level primitive.)
+(Reconcile supersedes Apply everywhere module state reaches the engine — tick, spawn/clear commands, exported SpawnFront, and post-rebuild — so engine-side decayrate drift always self-corrects and there is exactly one application path. Apply(diff) survives as an exported low-level primitive with no production caller — its core, applyChange, is unit-tested; a future per-room refinement (M4) is its likely consumer.)
 
 - [ ] **Step 3: Stub the not-yet-written references so the package compiles** — `registerExports` and the `cmdWeather` rework land in Tasks 16–17. For THIS task's commit, add a minimal `registerExports` placeholder in `weather_tick.go`... **No — placeholders are forbidden.** Instead: implement Tasks 15–17 as one *build unit* but keep commits separate by writing this task's files now and running the build only at the end of Task 17 if `go build` fails here. Practical sequencing: complete Steps 1–2 above, then immediately do Task 16 and Task 17, then run the verification step below once — committing each task's files separately in order (`git add` only that task's files). The existing `cmdWeather` from M1b still compiles against this task alone, and `registerExports` arrives in Task 17 — so after Task 15 alone the build FAILS on the one `m.registerExports()` call. Acceptable mid-sequence state; do NOT push between these commits.
 
