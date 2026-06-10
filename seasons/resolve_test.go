@@ -3,6 +3,7 @@ package seasons
 import (
 	"math"
 	"testing"
+	"testing/fstest"
 )
 
 // Stock calendar: 365 days, 12 months, hoursPerMonth = 365*24/12 = 730.
@@ -54,6 +55,43 @@ func TestResolveSeasonsAndBlend(t *testing.T) {
 	cur, prev, blend = tr.Resolve(61)
 	if cur != "spring" || prev != "winter" || blend != 0.0 {
 		t.Errorf("day 61: %s/%s/%v", cur, prev, blend)
+	}
+}
+
+// Non-12-month calendars must resolve identically to the engine's month math
+// (hoursPerMonth = 100*24/4 = 600; month m starts at the smallest day d with
+// d*24 >= (m-1)*600, i.e. days 1, 25, 50, 75 — exact divisors land ON the
+// boundary).
+func TestResolveNonTwelveMonthCalendar(t *testing.T) {
+	yaml := "track: q\nseasons:\n  - name: a\n    months: [4, 1]\n    transitionDays: 4\n  - name: b\n    months: [2, 3]\n    transitionDays: 4\n"
+	fsys := fstest.MapFS{"seasons/q.yaml": {Data: []byte(yaml)}}
+	tracks, errs := Load(fsys, "seasons", 4, 100)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	tr := tracks["q"]
+
+	if got := monthOfDay(24, 100, 4); got != 1 {
+		t.Errorf("day 24: month %d, want 1", got)
+	}
+	if got := monthOfDay(25, 100, 4); got != 2 {
+		t.Errorf("day 25: month %d, want 2", got)
+	}
+	// Season a wraps (months 4,1): day 5 is inside it, started day 75 ->
+	// daysInto = 5-75+100 = 30 -> fully blended.
+	cur, prev, blend := tr.Resolve(5)
+	if cur != "a" || prev != "b" || blend != 1.0 {
+		t.Errorf("day 5: %s/%s/%v", cur, prev, blend)
+	}
+	// Season b starts day 25; day 27 -> daysInto 2 -> blend 0.5.
+	cur, prev, blend = tr.Resolve(27)
+	if cur != "b" || prev != "a" || blend != 0.5 {
+		t.Errorf("day 27: %s/%s/%v", cur, prev, blend)
+	}
+	// Boundary day itself: blend 0 (continuous with season a).
+	cur, _, blend = tr.Resolve(25)
+	if cur != "b" || blend != 0.0 {
+		t.Errorf("day 25: %s blend %v, want b/0", cur, blend)
 	}
 }
 

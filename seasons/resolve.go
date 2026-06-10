@@ -15,6 +15,7 @@ func monthOfDay(dayOfYear, daysPerYear, monthsPerYear int) int {
 
 // firstDayOfMonth is the smallest day-of-year d with monthOfDay(d) == m.
 func firstDayOfMonth(m, daysPerYear, monthsPerYear int) int {
+	// Month 1 may be unreachable on degenerate calendars (daysPerYear <= monthsPerYear, where the engine's clamp skips it); "starts at day 1" stays engine-consistent for the prev-season and wrap arithmetic that call this.
 	if m <= 1 {
 		return 1
 	}

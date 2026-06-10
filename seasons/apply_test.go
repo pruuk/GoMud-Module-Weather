@@ -116,6 +116,36 @@ func TestEffectiveClimateEsotericSeason(t *testing.T) {
 	}
 }
 
+func TestEffectiveClimateAdditionsInBothSeasons(t *testing.T) {
+	yaml := `track: ashen
+seasons:
+  - name: smolder
+    months: [1, 2, 3, 4, 5, 6]
+    weatherWeightAdditions: { ashfall: 2 }
+  - name: eruption
+    months: [7, 8, 9, 10, 11, 12]
+    transitionDays: 4
+    weatherWeightAdditions: { ashfall: 10 }
+`
+	tracks := loadOne(t, yaml)
+	base := sim.Climate{"slopes": {
+		Weather: map[sim.WeatherType]float64{"clear": 5},
+		Track:   "ashen",
+	}}
+	// Month 7 starts day 183; day 185 -> daysInto 2 -> blend 0.5:
+	// ashfall = lerp(2, 10, 0.5) = 6 (dedup branch: key in BOTH seasons' additions).
+	eff := EffectiveClimate(base, tracks, CalendarPos{DayOfYear: 185, DaysPerYear: 365})
+	if got := eff["slopes"].Weather["ashfall"]; math.Abs(got-6) > 1e-9 {
+		t.Errorf("dual addition mid-window: want 6, got %v", got)
+	}
+	// And the down-ramp: entering smolder (day 1, blend 0 with no window ->
+	// smolder has transitionDays 0 => blend 1 immediately => ashfall 2).
+	eff = EffectiveClimate(base, tracks, CalendarPos{DayOfYear: 1, DaysPerYear: 365})
+	if got := eff["slopes"].Weather["ashfall"]; math.Abs(got-2) > 1e-9 {
+		t.Errorf("post-window addition: want 2, got %v", got)
+	}
+}
+
 func TestZoneSeasons(t *testing.T) {
 	g := &sim.Graph{Nodes: map[string]sim.ZoneNode{
 		"Frost": {Zone: "Frost", Biome: "tundra"},
