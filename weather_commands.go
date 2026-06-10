@@ -248,7 +248,7 @@ func (m *weatherModule) printSeasons(user *users.UserRecord) {
 		tr := m.tracks[name]
 		cur, prev, blend := tr.Resolve(pos.DayOfYear)
 		line := fmt.Sprintf("  %-12s %s", name, cur)
-		if blend < 1.0 {
+		if blend > 0 && blend < 1.0 {
 			line += fmt.Sprintf(" (blending from %s, %.0f%%)", prev, blend*100)
 		}
 		sendLine(user, line)

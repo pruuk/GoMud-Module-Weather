@@ -126,11 +126,14 @@ func (m *weatherModule) tick(round uint64) {
 }
 
 // resolveSeasons re-resolves every zone's season and queues a
-// WeatherSeasonChanged event for each flip since the previous tick.
+// WeatherSeasonChanged event for each flip since the previous tick. Cross-
+// track changes (a zone's biome reassigned by an admin rebuild) are not
+// calendar flips and emit nothing — listeners may assume From/To are seasons
+// of the same track.
 func (m *weatherModule) resolveSeasons() {
 	zs := seasons.ZoneSeasons(m.graph, m.climate, m.tracks, engine.CalendarNow())
 	for zone, cur := range zs {
-		if prev, ok := m.zoneSeasons[zone]; ok && prev.Season != cur.Season {
+		if prev, ok := m.zoneSeasons[zone]; ok && prev.Track == cur.Track && prev.Season != cur.Season {
 			events.AddToQueue(WeatherSeasonChanged{
 				Zone: zone, Track: cur.Track, From: prev.Season, To: cur.Season,
 			})
