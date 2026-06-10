@@ -246,11 +246,61 @@ func appendBounded(history []ZoneId, z ZoneId, max int) []ZoneId {
 	return history
 }
 
-// --- stubs replaced in later tasks ---
-
+// evolveTypes re-rolls the weather type of fronts that moved this tick (current
+// zone != last History entry), drawing from the new zone's climate weights. The
+// current type gets a bias bonus so changes are gradual, not jarring.
 func evolveTypes(fronts []Front, g *Graph, climate Climate, rng *RNG) []Front {
+	const keepBias = 3.0 // extra weight on the front's current type if valid here
+	for i := range fronts {
+		f := &fronts[i]
+		if f.Zone == lastZone(f.History) {
+			continue // did not move this tick
+		}
+		profile := climate.For(g.Nodes[f.Zone].Biome)
+		if len(profile.Weather) == 0 {
+			continue
+		}
+		f.Type = pickWeatherType(profile, f.Type, keepBias, rng)
+	}
 	return fronts
 }
+
+// pickWeatherType chooses a weather type from a profile's weights, adding
+// keepBias to `current` if it appears in the profile. Iteration is over a sorted
+// key list so selection is deterministic for a given RNG sequence.
+func pickWeatherType(profile ClimateProfile, current WeatherType, keepBias float64, rng *RNG) WeatherType {
+	keys := make([]WeatherType, 0, len(profile.Weather))
+	for k := range profile.Weather {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(a, b int) bool { return keys[a] < keys[b] })
+
+	total := 0.0
+	for _, k := range keys {
+		w := profile.Weather[k]
+		if k == current {
+			w += keepBias
+		}
+		total += w
+	}
+	if total <= 0 {
+		return current
+	}
+	r := rng.Float64() * total
+	for _, k := range keys {
+		w := profile.Weather[k]
+		if k == current {
+			w += keepBias
+		}
+		if r < w {
+			return k
+		}
+		r -= w
+	}
+	return keys[len(keys)-1]
+}
+
+// --- stubs replaced in later tasks ---
 
 func spawnFronts(fronts []Front, g *Graph, climate Climate, cfg Config, rng *RNG, nextID FrontId) ([]Front, FrontId) {
 	return fronts, nextID

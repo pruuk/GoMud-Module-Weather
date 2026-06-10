@@ -171,3 +171,39 @@ func TestMoveFronts_RecordsHistoryOnMove(t *testing.T) {
 		t.Fatal("with zero resistance, the front should sometimes move")
 	}
 }
+
+func TestEvolveTypes_AdaptsToNewBiome(t *testing.T) {
+	// A front that just moved INTO tundra (history shows it came from elsewhere)
+	// should, over many seeds, sometimes become a tundra-typical type (snow).
+	g := &Graph{Nodes: map[string]ZoneNode{
+		"T": {Zone: "T", Biome: "tundra"}, "P": {Zone: "P", Biome: "plains"},
+	}}
+	climate := DefaultClimate()
+	becameSnowy := 0
+	for i := 0; i < 300; i++ {
+		rng := NewRNG(uint64(i) + 1)
+		// Type "storm" entering tundra (storm is not in tundra's profile).
+		f := []Front{{Id: 1, Type: "storm", Zone: "T", Intensity: 0.8, History: []ZoneId{"P"}}}
+		out := evolveTypes(f, g, climate, rng)
+		if out[0].Type == "snow" || out[0].Type == "blizzard" {
+			becameSnowy++
+		}
+	}
+	if becameSnowy == 0 {
+		t.Error("a storm entering tundra should sometimes evolve toward snow/blizzard")
+	}
+}
+
+func TestEvolveTypes_StationaryFrontKeepsType(t *testing.T) {
+	// A front whose current zone == last history entry did NOT move this tick;
+	// it should keep its type (no re-roll).
+	g := &Graph{Nodes: map[string]ZoneNode{"T": {Zone: "T", Biome: "tundra"}}}
+	for i := 0; i < 50; i++ {
+		rng := NewRNG(uint64(i) + 1)
+		f := []Front{{Id: 1, Type: "storm", Zone: "T", Intensity: 0.8, History: []ZoneId{"T"}}}
+		out := evolveTypes(f, g, DefaultClimate(), rng)
+		if out[0].Type != "storm" {
+			t.Fatalf("stationary front should keep its type, got %q", out[0].Type)
+		}
+	}
+}
