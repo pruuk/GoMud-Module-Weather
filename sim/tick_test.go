@@ -295,3 +295,85 @@ func TestSpawnFronts_AssignsIncrementingIDs(t *testing.T) {
 		t.Error("spawned front should start with positive intensity")
 	}
 }
+
+func runTicks(seed uint64, n int) State {
+	g := twoZoneGraph()
+	climate := DefaultClimate()
+	cfg := DefaultConfig()
+	st := State{RNGState: seed, NextID: 1, Weather: map[ZoneId]WeatherType{}}
+	for i := 0; i < n; i++ {
+		st, _ = Step(st, g, climate, cfg, Clock{Round: uint64(i + 1)})
+	}
+	return st
+}
+
+func TestStep_Deterministic(t *testing.T) {
+	a := runTicks(12345, 40)
+	b := runTicks(12345, 40)
+	// Same seed + world + tick count => identical resolved weather and RNG cursor.
+	if a.RNGState != b.RNGState {
+		t.Fatal("RNG cursor diverged across identical runs")
+	}
+	if len(a.Weather) != len(b.Weather) {
+		t.Fatalf("weather map sizes differ: %d vs %d", len(a.Weather), len(b.Weather))
+	}
+	for z, w := range a.Weather {
+		if b.Weather[z] != w {
+			t.Errorf("zone %q weather diverged: %q vs %q", z, w, b.Weather[z])
+		}
+	}
+	if len(a.Fronts) != len(b.Fronts) {
+		t.Errorf("front counts diverged: %d vs %d", len(a.Fronts), len(b.Fronts))
+	}
+}
+
+func TestStep_StormDiesCrossingMountains(t *testing.T) {
+	// A long mountain chain. A strong storm seeded at one end must lose intensity
+	// as it crosses and eventually die — terrain is not a passive recipient.
+	nodes := map[string]ZoneNode{}
+	var edges []Edge
+	const N = 6
+	prev := ""
+	for i := 0; i < N; i++ {
+		z := string(rune('A' + i))
+		nodes[z] = ZoneNode{Zone: z, Biome: "mountain", HasOutdoor: true}
+		if prev != "" {
+			edges = append(edges, Edge{A: prev, B: z, Weight: 1})
+		}
+		prev = z
+	}
+	g := &Graph{Nodes: nodes, Edges: edges}
+	climate := DefaultClimate()
+	cfg := DefaultConfig()
+	cfg.SpawnChance = 0 // isolate the seeded storm
+
+	st := State{
+		RNGState: 99, NextID: 2,
+		Fronts:  []Front{{Id: 1, Type: "storm", Zone: "A", Intensity: 0.9, Moisture: 0.9, MaxAge: 100}},
+		Weather: map[ZoneId]WeatherType{},
+	}
+	start := st.Fronts[0].Intensity
+	died := false
+	minSeen := start
+	for i := 0; i < 40; i++ {
+		st, _ = Step(st, g, climate, cfg, Clock{Round: uint64(i + 1)})
+		if len(st.Fronts) == 0 {
+			died = true
+			break
+		}
+		if st.Fronts[0].Intensity < minSeen {
+			minSeen = st.Fronts[0].Intensity
+		}
+	}
+	if !died {
+		t.Fatalf("storm should die crossing the mountains; final intensity %v (min seen %v)",
+			lastIntensity(st), minSeen)
+	}
+}
+
+func lastIntensity(st State) float64 {
+	if len(st.Fronts) == 0 {
+		return 0
+	}
+	return st.Fronts[0].Intensity
+}
