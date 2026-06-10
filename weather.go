@@ -26,7 +26,7 @@ type weatherModule struct {
 	graph   *sim.Graph
 	started bool
 
-	simReady  bool   // graph + content + state loaded; ticking enabled
+	simReady  bool // graph + content + state loaded; ticking enabled
 	simCfg    sim.Config
 	climate   sim.Climate
 	tables    content.Tables
