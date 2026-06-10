@@ -42,6 +42,9 @@ func cloneFronts(in []Front) []Front {
 // ageAndFeedback ages each front and applies the influence of the biome of the
 // zone it currently occupies (the weather <- biome half of the feedback loop),
 // plus an age-based decay once past MaxAge. Intensity/Moisture are clamped.
+//
+// Mutates the elements of fronts in place; callers must pass a copy they own
+// (Step does, via cloneFronts).
 func ageAndFeedback(fronts []Front, g *Graph, climate Climate) []Front {
 	for i := range fronts {
 		f := &fronts[i]
@@ -59,7 +62,8 @@ func ageAndFeedback(fronts []Front, g *Graph, climate Climate) []Front {
 }
 
 // removeDead drops fronts whose intensity has reached zero or that exceed the
-// hard age cap.
+// hard age cap. It filters in place (reusing the backing array), so callers must
+// pass a copy they own (Step does, via cloneFronts).
 func removeDead(fronts []Front, cfg Config) []Front {
 	out := fronts[:0]
 	for _, f := range fronts {

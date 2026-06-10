@@ -40,7 +40,10 @@ type Clock struct {
 	Round uint64 `json:"round"`
 }
 
-// ZoneChange records one zone's weather transition for a tick.
+// ZoneChange records one zone's weather transition for a tick. A From of "" (the
+// zero WeatherType) means the zone had no previously-recorded weather — e.g. on
+// the first tick — not that it was literally empty; the engine layer should
+// treat "" as "unset".
 type ZoneChange struct {
 	Zone ZoneId      `json:"zone"`
 	From WeatherType `json:"from"`
