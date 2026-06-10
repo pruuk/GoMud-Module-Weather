@@ -52,6 +52,12 @@ func (m *weatherModule) loadContent() {
 		mudlog.Warn("Weather: emote tables failed to load", "error", err)
 	}
 	m.tables = tables
+
+	seasonalTables, err := content.LoadSeasonalEmotes(files, "files/datafiles/emotes/seasons")
+	if err != nil {
+		mudlog.Warn("Weather: seasonal emote tables failed to load", "error", err)
+	}
+	m.seasonalTables = seasonalTables
 }
 
 // loadSeasons loads season tracks and establishes the baseline per-zone

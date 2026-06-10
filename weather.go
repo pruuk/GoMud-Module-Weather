@@ -27,13 +27,14 @@ type weatherModule struct {
 	graph   *sim.Graph
 	started bool
 
-	simReady  bool // graph + content + state loaded; ticking enabled
-	simCfg    sim.Config
-	climate   sim.Climate
-	tables    content.Tables
-	state     sim.State
-	nextTick  uint64 // round number when the next weather tick fires
-	nextEmote uint64 // round number when the next ambient emote pass fires
+	simReady       bool // graph + content + state loaded; ticking enabled
+	simCfg         sim.Config
+	climate        sim.Climate
+	tables         content.Tables
+	seasonalTables content.SeasonalTables // seasonal-ambience emotes (track,season)-keyed
+	state          sim.State
+	nextTick       uint64 // round number when the next weather tick fires
+	nextEmote      uint64 // round number when the next ambient emote pass fires
 
 	tracks      seasons.Tracks                    // loaded season tracks (nil/empty = seasons off)
 	seasonsOn   bool                              // SeasonsEnabled && tracks loaded && calendar usable
@@ -84,7 +85,7 @@ func (m *weatherModule) onNewRound(e events.Event) events.ListenerReturn {
 		return events.Continue
 	}
 	if m.cfg.EmoteMode == EmoteModeModule && evt.RoundNumber >= m.nextEmote {
-		engine.EmitAmbient(m.state.Weather, m.tables, util.Rand)
+		engine.EmitAmbient(m.state.Weather, m.zoneSeasons, m.tables, m.seasonalTables, util.Rand)
 		m.scheduleEmote(evt.RoundNumber)
 	}
 	if evt.RoundNumber >= m.nextTick {
