@@ -63,6 +63,26 @@ func TestApplyChange(t *testing.T) {
 	}
 }
 
+func TestSeasonMutatorId(t *testing.T) {
+	if got := SeasonMutatorId("temperate", "winter"); got != "season-temperate-winter" {
+		t.Errorf("got %q", got)
+	}
+	if SeasonMutatorId("", "winter") != "" || SeasonMutatorId("temperate", "") != "" {
+		t.Error("empty track or season must map to no mutator")
+	}
+}
+
+func TestReconcileSeasonZone(t *testing.T) {
+	// Same core as weather: stale season swapped for the current one,
+	// weather-* ids untouched because the caller gathers season-* only.
+	f := newFake("season-temperate-autumn")
+	reconcileZone(f, []string{"season-temperate-autumn"}, SeasonMutatorId("temperate", "winter"))
+	want := []string{"remove:season-temperate-autumn", "add:season-temperate-winter"}
+	if !reflect.DeepEqual(f.ops, want) {
+		t.Errorf("ops = %v, want %v", f.ops, want)
+	}
+}
+
 func TestReconcileZone(t *testing.T) {
 	// Stale storm + stray fog live; target is rain.
 	f := newFake("weather-storm", "weather-fog")

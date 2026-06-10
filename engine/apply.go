@@ -6,6 +6,7 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/mutators"
 	"github.com/GoMudEngine/GoMud/internal/rooms"
+	"github.com/GoMudEngine/GoMud/modules/weather/seasons"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
@@ -82,6 +83,60 @@ func warnUnknownMutator(w sim.WeatherType) {
 	mudlog.Warn("Weather: no mutator spec loaded for weather type", "mutatorId", id)
 }
 
+// SeasonMutatorPrefix namespaces the seasonal-ambience mutators; independent
+// of WeatherMutatorPrefix — the two reconcile layers never touch each other's
+// ids.
+const SeasonMutatorPrefix = "season-"
+
+// SeasonMutatorId maps a zone's resolved (track, season) to its mutator id;
+// "" when either part is empty (no seasonal mutator).
+func SeasonMutatorId(track, season string) string {
+	if track == "" || season == "" {
+		return ""
+	}
+	return SeasonMutatorPrefix + track + "-" + season
+}
+
+// ReconcileSeasons forces every zone's season-* mutators to match its
+// resolved season — used at boot, each tick, and after a graph rebuild.
+// Zones absent from the map (unbound biomes) get their season-* mutators
+// removed, so a zone whose biome lost its track binding heals.
+func ReconcileSeasons(g *sim.Graph, zoneSeasons map[sim.ZoneId]seasons.ZoneSeason) {
+	for _, zone := range g.Zones() {
+		zc := rooms.GetZoneConfig(zone)
+		if zc == nil {
+			continue
+		}
+		var current []string
+		for _, mut := range zc.Mutators.GetActive() {
+			if strings.HasPrefix(mut.MutatorId, SeasonMutatorPrefix) {
+				current = append(current, mut.MutatorId)
+			}
+		}
+		want := ""
+		if zs, ok := zoneSeasons[zone]; ok {
+			want = SeasonMutatorId(zs.Track, zs.Season)
+		}
+		if len(current) == 0 && want == "" {
+			continue
+		}
+		if !reconcileZone(&zc.Mutators, current, want) {
+			warnUnknownSeasonMutator(want)
+		}
+	}
+}
+
+// warnedSeasonMutators: warn-once for missing season specs (single goroutine).
+var warnedSeasonMutators = map[string]bool{}
+
+func warnUnknownSeasonMutator(id string) {
+	if id == "" || warnedSeasonMutators[id] {
+		return
+	}
+	warnedSeasonMutators[id] = true
+	mudlog.Warn("Weather: no mutator spec loaded for season", "mutatorId", id)
+}
+
 // Apply walks a StateDiff and applies each change to its zone's zone-wide
 // mutator list (spec §9.1 primary strategy). Zones missing from the live world
 // (stale graph) are skipped.
@@ -118,15 +173,15 @@ func Reconcile(weather map[sim.ZoneId]sim.WeatherType) {
 	}
 }
 
-// StripBuffs clears the buff id lists on every loaded weather-* mutator spec —
-// the BuffsEnabled=false path. GetMutatorSpec returns the registry's live
-// pointer, so this affects all future applications. Returns the count stripped.
-// Boot-time only: there is no restore path, so re-enabling buffs requires a
-// reload.
+// StripBuffs clears the buff id lists on every loaded weather-* and season-*
+// mutator spec — the BuffsEnabled=false path. GetMutatorSpec returns the
+// registry's live pointer, so this affects all future applications. Returns
+// the count stripped. Boot-time only: there is no restore path, so
+// re-enabling buffs requires a reload.
 func StripBuffs() int {
 	n := 0
 	for _, id := range mutators.GetAllMutatorIds() {
-		if !strings.HasPrefix(id, WeatherMutatorPrefix) {
+		if !strings.HasPrefix(id, WeatherMutatorPrefix) && !strings.HasPrefix(id, SeasonMutatorPrefix) {
 			continue
 		}
 		if spec := mutators.GetMutatorSpec(id); spec != nil {
