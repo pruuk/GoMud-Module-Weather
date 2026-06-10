@@ -165,10 +165,10 @@ hour. No data authoring, no room tagging, no world prep.
 ### What you'll see in the boot log
 
 ```
-mutators.LoadDataFiles()  loadedCount=24        ← stock 10 + our 8 weather + 6 season specs
+mutators.LoadDataFiles()  loadedCount=24        ← your world's specs + our 14 (8 weather + 6 season)
 Weather: built geography graph  zones=15 edges=10 components=6
 Weather: seasons active  tracks=2 seasonalZones=8
-Weather: fresh simulation state  seed=17214436859030717895
+Weather: fresh simulation state  seed=17214436859030717895 currentRound=...
 ```
 
 `tracks=2` is the two shipped tracks loaded; `seasonalZones=8` is how many of the
@@ -524,14 +524,16 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
    fires.)
 
 9. **A calendar that isn't 12 months.** The shipped tracks map seasons onto
-   1-based months of the **stock 12-month calendar**. The module fails soft: with
-   *no* usable calendar, seasons switch off entirely (weather runs as v1). With a
-   *different* calendar shape (say 8 months), the tracks still resolve — months
-   beyond a track's listed set simply fall outside every season's window and the
-   resolver picks the nearest defined season — but the mapping won't read the way
-   you intend. **Authoring note:** if your world uses a custom calendar, author
-   tracks whose `months:` cover its real month numbers rather than reusing the
-   shipped 1–12 layout.
+   1-based months of the **stock 12-month calendar**, and every track is
+   validated against your world's real calendar at load: a track whose months
+   don't exactly cover `1..N` (no gaps, no out-of-range months) is **rejected
+   with a logged warning**. On an 8-month or 14-month calendar the shipped
+   tracks therefore fail validation and **seasons switch off entirely** —
+   weather runs exactly as v1, same as having no usable calendar. This is
+   deliberate fail-soft: a silently misaligned winter is worse than no seasons.
+   **Authoring note:** a custom calendar needs custom tracks — write `months:`
+   lists that cover its real month numbers and the module takes them from
+   there.
 
 10. **Claiming the `season-` namespace** (the seasonal half of #4). Worth calling
     out on its own because seasons add a whole second namespace of long-lived
