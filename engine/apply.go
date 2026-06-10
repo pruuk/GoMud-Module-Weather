@@ -50,11 +50,11 @@ func applyChange(ms mutatorSet, from, to sim.WeatherType) bool {
 	return true
 }
 
-// reconcileZone forces a zone's weather mutators to exactly match target:
-// every live weather-* id except the target is removed; the target is added if
-// absent. current must hold the zone's live weather-* mutator ids.
-func reconcileZone(ms mutatorSet, current []string, target sim.WeatherType) bool {
-	want := MutatorIdFor(target)
+// reconcileZone forces a zone's mutators WITHIN ONE NAMESPACE to exactly
+// match want: every id in current except want is removed; want is added if
+// absent ("" = remove all). current must hold only ids from the same
+// namespace (the caller gathers by prefix).
+func reconcileZone(ms mutatorSet, current []string, want string) bool {
 	hasWant := false
 	for _, id := range current {
 		if id == want {
@@ -112,7 +112,7 @@ func Reconcile(weather map[sim.ZoneId]sim.WeatherType) {
 				current = append(current, mut.MutatorId)
 			}
 		}
-		if !reconcileZone(&zc.Mutators, current, w) {
+		if !reconcileZone(&zc.Mutators, current, MutatorIdFor(w)) {
 			warnUnknownMutator(w)
 		}
 	}
