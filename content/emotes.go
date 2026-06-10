@@ -135,6 +135,7 @@ type seasonalEmoteFile struct {
 // LoadSeasonalEmotes loads every *.yaml under dir, keyed by (track, season).
 // Missing dir = empty tables; the first malformed file aborts with an error
 // (caller fails soft). Requires both 'track' and 'season' keys.
+// On duplicate (track, season) keys, the later file in sorted filename order wins.
 func LoadSeasonalEmotes(fsys fs.FS, dir string) (SeasonalTables, error) {
 	out := SeasonalTables{}
 	entries, err := fs.ReadDir(fsys, dir)

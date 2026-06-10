@@ -23,6 +23,10 @@ seasonal:
     indoor:
       default:
         - "Frozen rain rattles the shutters like thrown gravel."
+  summer: # outdoor-only variant — indoor section intentionally absent
+    outdoor:
+      default:
+        - "Thunder cracks through the heavy summer heat."
 `
 
 func loadTestTables(t *testing.T) Tables {
@@ -151,16 +155,20 @@ func TestPickSeasonalVariant(t *testing.T) {
 	if got := tables.Pick("storm", "forest", false, "winter", first); got != "Sleet-laden thunder shakes loose flurries of ice." {
 		t.Errorf("variant default should win over base biome: %q", got)
 	}
-	// Season without a variant: base lines.
-	if got := tables.Pick("storm", "forest", false, "summer", first); got != "Wind tears at the branches; the whole canopy roars." {
+	// Season without a variant entry: base lines.
+	if got := tables.Pick("storm", "forest", false, "autumn", first); got != "Wind tears at the branches; the whole canopy roars." {
 		t.Errorf("no-variant season falls to base: %q", got)
 	}
 	// No season (seasons off / unbound zone): base lines.
 	if got := tables.Pick("storm", "default", false, "", first); got != "Thunder cracks directly overhead." {
 		t.Errorf("empty season falls to base: %q", got)
 	}
-	// Variant exists but its sections are empty for indoor+biome: falls to base.
+	// Variant exists but has no indoor section: falls to base indoor.
 	if got := tables.Pick("storm", "default", true, "summer", first); got != "Rain hammers against the windows." {
 		t.Errorf("missing variant indoor falls to base indoor: %q", got)
+	}
+	// Summer outdoor variant is served.
+	if got := tables.Pick("storm", "default", false, "summer", first); got != "Thunder cracks through the heavy summer heat." {
+		t.Errorf("summer outdoor variant: %q", got)
 	}
 }
