@@ -46,6 +46,13 @@
 
 ## Task 1: V-1 — prove the config write round-trip
 
+> **V-1 VERDICT: PASS (2026-06-10).** All four properties hold. Facts for the
+> remaining tasks: `PluginConfig.Set(name string, val any)` is **void** (the
+> Task 4 handler code is correct as written); the data-overlay keys populate
+> the engine's `keyLookups` at `plugins.Load()`, so `Modules.weather.*` paths
+> validate; the override file is **`_datafiles/world/default/config-overrides.yaml`**
+> (NOT `_datafiles/config-overrides.yaml`) — Task 7's smoke check looks there.
+
 Nothing else builds until `plugin.Config.Set` is proven to (a) accept `Modules.weather.*` keys, (b) be visible to `plugin.Config.Get` immediately, (c) persist to the override file, (d) survive a reboot.
 
 **Files:** Temporary, removed at the end of this task: a `configtest` case in `weather_commands.go`. Permanent: a dated note in this plan file recording the verdict.
