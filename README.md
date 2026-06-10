@@ -72,8 +72,9 @@ it record exactly what each milestone shipped.
 
 ## Requirements
 
-- **Go 1.25+** ([go.dev/dl](https://go.dev/dl/)). You don't need to know Go to
-  *use* the module, but you need the toolchain to build GoMud at all.
+- **Go 1.24+** ([go.dev/dl](https://go.dev/dl/)) — the same minimum as the
+  GoMud engine itself; the module needs nothing newer. You don't need to know
+  Go to *use* the module, but you need the toolchain to build GoMud at all.
 - **A current upstream GoMud checkout.** The module binds to engine features
   that exist on upstream `master` as of mid-2026, most importantly
   **plugin-filesystem data loading for mutators** (the engine wires
@@ -103,18 +104,16 @@ These steps assume you've never built GoMud before.
    cd GoMud
    ```
 
-3. **Add the module.** Once the module is listed in the GoMud registry this
-   will be one command (`go run . module install weather`). Until then, copy
-   this repository's contents into the checkout at `modules/weather/`,
-   **excluding `go.mod` and `go.sum`** (in-checkout modules have no module
-   file of their own — they build as part of the engine). From this repo:
+3. **Install the module through GoMud's module manager** (the standard path —
+   the module is listed in the official registry):
 
-   ```powershell
-   pwsh scripts/sync-to-checkout.ps1 -Checkout <path-to-your-GoMud-checkout>
+   ```sh
+   go run . module install weather
    ```
 
-   (or copy by hand; also skip `docs/` and `scripts/` — only the Go packages
-   and `files/` matter at runtime).
+   This downloads the release archive, verifies its checksum, and extracts it
+   to `modules/weather/`. You'll be asked to confirm a third-party install
+   (the module is community-authored, not by the GoMud team).
 
 4. **Register modules and build.** From the GoMud checkout root:
 
@@ -452,6 +451,10 @@ pwsh scripts/sync-to-checkout.ps1 -Checkout <path-to-GoMud-checkout>
 # then, from the checkout:
 go test ./modules/weather/...
 ```
+
+(`sync-to-checkout.ps1` is a **development** tool for iterating on this repo
+against a live engine. It is not an installation mechanism — operators should
+install through GoMud's module manager as described above.)
 
 `CONTRIBUTING.md` covers the module/engine ownership boundary, the OOBE
 requirement, architecture rules, and the boot smoke-test checklist. Each Go
