@@ -311,6 +311,36 @@ calendar the tracks don't fit ⇒ log once, run exactly as v1 weather.
   `road`/`city`/`fort`/`slums` → `temperate`) so most outdoor stock zones are
   seasonal. Lifecycle wired: `ReconcileSeasons` called at boot, per tick, and
   post-rebuild. Pending smoke render (Task 8).
+
+  > **2026-06-10 — S2 implemented and smoke-verified.** Standalone + checkout
+  > suites green; the stock world boots with `mutators.LoadDataFiles()
+  > loadedCount=24` (10 disk + 14 plugin: 8 weather + 6 season specs) and no
+  > `duplicate mutator id`/`filepath mismatch`/season warnings. Boot logs
+  > `Weather: seasons active tracks=2 seasonalZones=8` — up from S1's **1**;
+  > the Task 1 biome coverage brings **8 of the 15** stock zones into a track
+  > (the rest are indoor/cave/dungeon/desert or otherwise unbound, as designed).
+  > The `season-<track>-<season>` mutator layer reconciles cleanly: in Dark
+  > Forest (`forest`→`temperate`→`winter` at calendar day 1/365) `look` shows
+  > the seasonal description line under normal conditions. **S-R2 verdict —
+  > validated:** `weather spawn storm Dark Forest 0.9` then `look` rendered the
+  > title with only the weather tag (`Forest Road (storm-wracked)`) and the
+  > description carrying both the seasonal winter line and the storm line (plus
+  > the storm banner) in order — no title noise, both layers legible; the
+  > description-only seasonal specs + weather name-tag design read well.
+  > `weather clear` removed the storm tag/line while the seasonal line
+  > remained. `weather`/`weather seasons`/`weather status` are mutually
+  > consistent (clear/winter; "8 zone(s) seasonal"). `SeasonsEnabled: false`
+  > rebuild boots with no `seasons active` line, `weather seasons` -> off, and a
+  > fresh boot applies **no** season mutators (`look` shows no seasonal line) —
+  > seasons-off never touches zone mutators. Restoring the config and rebooting
+  > re-asserts the seasonal mutators via the boot reconcile (`look` shows the
+  > winter line again) with `restored simulation state` present and **zero**
+  > `WeatherSeasonChanged` events (no reboot flood). Per the scope decision,
+  > the six shipped seasonal specs carry **no default buffs and no default
+  > exits** — both remain documented builder seams (buff override path awaits
+  > M4 `Buffs.Overrides`; the frozen-river exits example is in the README).
+  > S3 (seasonal prose & content: emote tables, `seasonal:` weather variants,
+  > `jungle`/`monsoon` default content) is next.
 - **S3 — Seasonal prose & content:** seasonal emote tables, `seasonal:`
   weather-variant support, default content pass (incl. `jungle`/`monsoon`),
   README/builder-guide updates.
@@ -343,7 +373,7 @@ approval gates.
 | # | Risk / question | Mitigation / answer |
 |---|---|---|
 | S-R1 | Two ambient-emote sources could feel spammy | Seasonal emotes fire at a lower cadence and yield to weather emotes; both ride one scheduler pass |
-| S-R2 | Mutator count per zone grows to 2 (weather + season) | Engine merges zone mutators at render already; verified pattern. **2026-06-10 (S2):** Seasonal specs ship **without `namemodifier`** — room titles already carry the weather tag and adding a second seasonal tag makes titles noisy. Description lines carry both layers cleanly. Render quality confirmed pending the S2 smoke render (Task 8 finalizes the verdict). |
+| S-R2 | Mutator count per zone grows to 2 (weather + season) | Engine merges zone mutators at render already; verified pattern. **2026-06-10 (S2):** Seasonal specs ship **without `namemodifier`** — room titles already carry the weather tag and adding a second seasonal tag makes titles noisy. Description lines carry both layers cleanly. **Validated by the S2 smoke render (2026-06-10):** with a storm spawned over a winter zone, `look` rendered the room title carrying only the weather tag (`Forest Road (storm-wracked)`) while the description carried both layers in order — the seasonal line ("Winter holds the land; frost rims every edge…") followed by the storm line ("Rain lashes down in sheets and thunder rolls…") and the storm `namemodifier` banner. No title noise; the two-layer description read cleanly. The no-`namemodifier`-on-seasons call was correct. |
 | S-R3 | Worlds with non-12-month calendars get no defaults | Deliberate: track files must be authored to the calendar; fail-soft to v1 weather otherwise |
 | S-R4 | Hemisphere support limited to biome-id granularity | Documented; per-zone track override is the designed seam |
 | S-R5 | Blend window vs `TickEveryGameHours` interaction (long ticks may sample a window once or never) | Blend is sampled per tick; with stock settings (24 ticks/day, 6-day window) ≈ 144 samples. Document that very long tick cadences coarsen blending — cosmetic only |
