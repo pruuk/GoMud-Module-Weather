@@ -35,6 +35,8 @@ type Graph struct {
 	Nodes        map[string]ZoneNode `json:"nodes"`
 	Edges        []Edge              `json:"edges"`
 	Components   int                 `json:"components"`
+
+	adj map[string][]Edge // lazy adjacency index; rebuilt after FromJSON (nil there)
 }
 
 // ToJSON serializes the graph to the on-disk cache format (indented for
@@ -65,16 +67,25 @@ func (g *Graph) Zones() []string {
 }
 
 // Neighbors returns the zones adjacent to z, each as an Edge oriented from z
-// (Edge.A == z, Edge.B == the neighbor). Returns nil if z has no edges.
+// (Edge.A == z). The result is a shared slice from a lazily-built index —
+// callers MUST NOT mutate it (copy before sorting). Returns nil for unknown
+// or isolated zones.
 func (g *Graph) Neighbors(z string) []Edge {
-	var out []Edge
+	if g.adj == nil {
+		g.buildAdjacency()
+	}
+	return g.adj[z]
+}
+
+// buildAdjacency indexes Edges by zone, both orientations. Called lazily from
+// Neighbors; the module runs on GoMud's single game-loop goroutine, so the
+// unsynchronized lazy build is safe.
+func (g *Graph) buildAdjacency() {
+	g.adj = make(map[string][]Edge, len(g.Nodes))
 	for _, e := range g.Edges {
-		switch z {
-		case e.A:
-			out = append(out, e)
-		case e.B:
-			out = append(out, Edge{A: e.B, B: e.A, Weight: e.Weight})
+		g.adj[e.A] = append(g.adj[e.A], e)
+		if e.B != e.A {
+			g.adj[e.B] = append(g.adj[e.B], Edge{A: e.B, B: e.A, Weight: e.Weight})
 		}
 	}
-	return out
 }

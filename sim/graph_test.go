@@ -69,6 +69,52 @@ func TestFromJSONError(t *testing.T) {
 	}
 }
 
+func TestNeighborsUsesStableIndex(t *testing.T) {
+	g := &Graph{
+		Nodes: map[string]ZoneNode{"A": {Zone: "A"}, "B": {Zone: "B"}, "C": {Zone: "C"}},
+		Edges: []Edge{{A: "A", B: "B", Weight: 2}, {A: "B", B: "C", Weight: 1}},
+	}
+	first := g.Neighbors("B")
+	second := g.Neighbors("B")
+	if len(first) != 2 || len(second) != 2 {
+		t.Fatalf("B should have 2 neighbors, got %d then %d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("Neighbors must be stable across calls: %v vs %v", first, second)
+		}
+	}
+	// Orientation: every returned edge is oriented from the queried zone.
+	for _, e := range first {
+		if e.A != "B" {
+			t.Errorf("edge not oriented from queried zone: %+v", e)
+		}
+	}
+	if g.Neighbors("missing") != nil {
+		t.Error("unknown zone should return nil")
+	}
+}
+
+func TestNeighborsIndexRebuiltAfterDecode(t *testing.T) {
+	g := &Graph{
+		Nodes: map[string]ZoneNode{"A": {Zone: "A"}, "B": {Zone: "B"}},
+		Edges: []Edge{{A: "A", B: "B", Weight: 1}},
+	}
+	_ = g.Neighbors("A") // force index build
+	b, err := g.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g2, err := FromJSON(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := g2.Neighbors("B")
+	if len(n) != 1 || n[0].B != "A" || n[0].Weight != 1 {
+		t.Fatalf("decoded graph must answer Neighbors correctly, got %v", n)
+	}
+}
+
 func TestGraphZones(t *testing.T) {
 	g := &Graph{Nodes: map[string]ZoneNode{
 		"B": {Zone: "B"}, "A": {Zone: "A"}, "C": {Zone: "C"},
