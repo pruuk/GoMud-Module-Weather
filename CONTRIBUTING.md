@@ -71,14 +71,38 @@ it.
 
 ## Development workflow
 
-This module only compiles inside a GoMud checkout:
+### Standalone tests (no checkout required)
 
-1. Place `modules/weather/` under a checkout's `modules/weather/`.
-2. `go generate ./... && go build`.
-3. Run the server; exercise via admin commands and/or the playtest harness.
+The pure packages (`sim/`, `crawler/`, `content/`) are fully testable in the
+standalone repo:
 
-Prefer test-first where practical — the crawler and `sim/` are designed to be
-unit-tested without a running server (via fake `WorldView` fixtures).
+```
+go test ./sim/... ./crawler/... ./content/...
+```
+
+`content/` depends on `gopkg.in/yaml.v2` — the engine's own YAML library. The
+standalone `go.mod` carries it so these tests run without a checkout. The
+`go.mod` and `go.sum` in this repo are **never** synced to a checkout; the
+checkout's own dependency graph applies once the module is dropped in.
+
+### Engine-coupled tests (require a checkout)
+
+`engine/` and the root `weather` package import `internal/*` and only compile
+inside a GoMud checkout. To run the full test suite:
+
+1. Sync to a checkout: `pwsh scripts/sync-to-checkout.ps1 -Checkout <path>`.
+2. From the checkout root: `go test ./modules/weather/...`.
+
+### Integration / smoke test
+
+1. Place `modules/weather/` under `<checkout>/modules/weather/`.
+2. `go build ./...` from the checkout root.
+3. Run the server; first round builds the graph and starts the simulation.
+4. Exercise via `weather status`, `weather fronts`, `weather spawn`, and the
+   player `weather` command.
+
+Prefer test-first where practical — `sim/`, `crawler/`, and `content/` are
+designed to be unit-tested without a running server.
 
 ## Commits & reviews
 

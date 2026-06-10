@@ -10,8 +10,14 @@ server and portable across GoMud and DOGMud.
 ## Key Components
 ### Core Files
 - **graph.go**: the `Graph`, `ZoneNode`, and `Edge` types; the `GraphVersion`
-  constant; JSON cache serialization (`ToJSON` / `FromJSON`); and the
-  `Neighbors` adjacency query.
+  constant; JSON cache serialization (`ToJSON` / `FromJSON`); `Zones()`;
+  `Neighbors` (lazy adjacency index); and `FindZone` (case-insensitive lookup).
+- **state.go**: `NewState` / `DeriveSeed` (FNV-1a over sorted zone names); and
+  the persistence codec `ToJSON` / `StateFromJSON`.
+- **query.go**: `Coverage` and `Covering` — front-projection query that mirrors
+  `resolveWeather`'s coverage rule.
+- **mutate.go**: `ForceSpawn` and `ClearZones` — pure admin-action mutators (no
+  RNG consumed).
 - **arch_test.go**: architecture guardrail — fails if any file in this package
   imports a `GoMudEngine/GoMud/internal` path.
 
@@ -32,6 +38,12 @@ type Graph struct {
     Nodes        map[string]ZoneNode
     Edges        []Edge
     Components   int                   // connected-component count
+    // adj is a lazy adjacency index; nil after FromJSON, rebuilt on first Neighbors call.
+}
+type Coverage struct {
+    Front     Front
+    Effective float64  // projected intensity at the queried zone
+    Hops      int      // graph distance from the front's centre
 }
 ```
 
@@ -39,19 +51,45 @@ type Graph struct {
 - `(*Graph) ToJSON() ([]byte, error)` / `FromJSON([]byte) (*Graph, error)` —
   the on-disk cache format (indented JSON). `GraphVersion` lets a loader detect
   a stale cache and rebuild.
+- `(*Graph) Zones() []string` — sorted zone names for deterministic iteration.
 - `(*Graph) Neighbors(zone string) []Edge` — adjacent zones, each Edge oriented
-  from the queried zone (`Edge.A == zone`).
+  from the queried zone (`Edge.A == zone`). Returns a **shared slice** from a
+  lazily-built index; callers MUST NOT mutate it — copy before sorting. Returns
+  nil for unknown or isolated zones. The adjacency index is rebuilt lazily after
+  `FromJSON` (the `adj` field is not serialized).
+- `(*Graph) FindZone(name string) (string, bool)` — case-insensitive zone
+  lookup; exact match wins over a fold-equal match.
+- `NewState(seed uint64) State` — initial simulation state for a fresh run.
+- `DeriveSeed(g *Graph) uint64` — stable default seed from sorted zone names
+  (FNV-1a); used when the configured `Seed` is 0 so two distinct worlds differ.
+- `(State) ToJSON() ([]byte, error)` / `StateFromJSON([]byte) (State, error)` —
+  persistence codec for the full simulation state.
+- `Covering(g, fronts, cfg, zone) []Coverage` — fronts whose area projection
+  reaches `zone`, strongest effective intensity first (ties by front id). Mirrors
+  `resolveWeather`'s coverage rule exactly.
+- `ForceSpawn(prev, g, cfg, wtype, zone, intensity, clock) (State, StateDiff, bool)`
+  — inject a front bypassing budget and spawn chance. `intensity <= 0` defaults
+  to 0.6. Returns ok=false for an unknown zone. Pure: input state unchanged, no
+  RNG consumed (admin actions must not perturb the deterministic trace).
+- `ClearZones(prev, g, cfg, zones, clock) (State, StateDiff)` — remove fronts
+  and re-resolve weather. No zones = clear all. With zones, uses `Covering` so a
+  named zone clears even when its front is centred elsewhere. Pure; no RNG
+  consumed.
 
 ## Dependencies
-- Standard library only (`encoding/json`). No engine imports (enforced).
+- Standard library only (`encoding/json`, `sort`, `strings`). No engine imports (enforced).
 
 ## Consumers
 - `crawler.Build` returns a `*Graph`.
-- (Future) the weather simulation reads adjacency via `Neighbors`; the engine
-  integration loads/saves the cache via `ToJSON`/`FromJSON`.
+- `engine.Apply`/`engine.Reconcile` consume `StateDiff` and `State.Weather`.
+- The module root calls `Covering`, `ForceSpawn`, `ClearZones`, `NewState`, and
+  `DeriveSeed` from command handlers, the tick path, and the exported API.
 
 ## Testing
-- `graph_test.go`: JSON round-trip and `Neighbors`.
+- `graph_test.go`: JSON round-trip, `Neighbors`, `FindZone`.
+- `state_test.go`: `NewState`, `DeriveSeed`, `ToJSON`/`StateFromJSON` round-trip.
+- `query_test.go`: `Covering` projection and ordering.
+- `mutate_test.go`: `ForceSpawn` and `ClearZones` (coverage-based clear).
 - `arch_test.go`: purity guardrail.
 
 ## Weather simulation (M2)
@@ -90,7 +128,6 @@ cursor is written back into the next `State`. Same seed + graph + tick count ⇒
 identical fronts and per-zone weather (see `TestStep_Deterministic`).
 
 ### Deferred (later milestones)
-- File/YAML climate overrides and mutator application live in the engine layer (M3).
 - **Prevailing-wind direction** (a MUD owner biasing where storms originate/move,
   e.g. west→east) is a planned later chunk: it needs directional edge metadata,
   which a future crawler pass can derive from each exit's `MapDirection`.
