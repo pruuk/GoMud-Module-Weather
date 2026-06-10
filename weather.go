@@ -2,14 +2,10 @@ package weather
 
 import (
 	"embed"
-	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/GoMudEngine/GoMud/internal/events"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
-	"github.com/GoMudEngine/GoMud/internal/rooms"
 	"github.com/GoMudEngine/GoMud/internal/users"
 	"github.com/GoMudEngine/GoMud/internal/util"
 	"github.com/GoMudEngine/GoMud/modules/weather/content"
@@ -133,73 +129,4 @@ func (m *weatherModule) rebuildGraph() {
 // Backporting to DOGMud is a one-line change here.
 func sendLine(user *users.UserRecord, text string) {
 	user.SendText(text)
-}
-
-// cmdWeather is the admin command. Subcommands:
-//
-//	weather                -> graph summary
-//	weather graph [zone]   -> neighbors of a zone (default: the caller's zone)
-//	weather rebuild        -> re-crawl the world and rewrite the cache
-func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *rooms.Room, flags events.EventFlag) (bool, error) {
-	args := strings.Fields(rest)
-	sub := ""
-	if len(args) > 0 {
-		sub = strings.ToLower(args[0])
-	}
-
-	switch sub {
-	case "rebuild":
-		m.rebuildGraph()
-		if m.graph == nil {
-			sendLine(user, "Weather: graph rebuild failed (see server log).")
-			return true, nil
-		}
-		sendLine(user, fmt.Sprintf(
-			"Weather: rebuilt graph — %d zones, %d edges, %d components.",
-			len(m.graph.Nodes), len(m.graph.Edges), m.graph.Components))
-	case "graph":
-		zone := strings.TrimSpace(rest[len(args[0]):])
-		if zone == "" && room != nil {
-			zone = room.Zone
-		}
-		m.printGraphForZone(user, zone)
-	default:
-		m.printSummary(user)
-	}
-	return true, nil
-}
-
-func (m *weatherModule) printSummary(user *users.UserRecord) {
-	if m.graph == nil {
-		sendLine(user, "Weather: no geography graph yet (built on the first round). Try 'weather rebuild'.")
-		return
-	}
-	g := m.graph
-	sendLine(user, fmt.Sprintf(
-		"Weather geography: %d zones, %d edges, %d components (built round %d).",
-		len(g.Nodes), len(g.Edges), g.Components, g.BuiltAtRound))
-}
-
-func (m *weatherModule) printGraphForZone(user *users.UserRecord, zone string) {
-	if m.graph == nil {
-		sendLine(user, "Weather: no geography graph yet (built on the first round). Try 'weather rebuild'.")
-		return
-	}
-	node, ok := m.graph.Nodes[zone]
-	if !ok {
-		sendLine(user, fmt.Sprintf("Weather: zone %q is not in the graph.", zone))
-		return
-	}
-	sendLine(user, fmt.Sprintf(
-		"Zone %s [biome=%s rooms=%d outdoor=%v]:", node.Zone, node.Biome, node.Rooms, node.HasOutdoor))
-
-	neighbors := append([]sim.Edge(nil), m.graph.Neighbors(zone)...)
-	if len(neighbors) == 0 {
-		sendLine(user, "  (no adjacent zones)")
-		return
-	}
-	sort.Slice(neighbors, func(i, j int) bool { return neighbors[i].B < neighbors[j].B })
-	for _, e := range neighbors {
-		sendLine(user, fmt.Sprintf("  -> %s (weight %d)", e.B, e.Weight))
-	}
 }
