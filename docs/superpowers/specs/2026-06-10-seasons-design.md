@@ -25,6 +25,7 @@ Decisions locked during brainstorming (2026-06-10):
 | Mechanics in scope | Seasonal ambient mutators, seasonal buffs, seasonal exits (builder-authored), `SeasonChanged` event + `GetSeason` export |
 | Prose model | Two layers, sparse: seasonal mutators/emotes carry the persistent look; weather emote tables gain *optional* per-season variants with full fallback |
 | Architecture | **A: pure climate transform** — a `seasons/` package computes an effective `sim.Climate` per tick; `sim.Step` is untouched |
+| Esoteric seasons (raised by Volte6, 2026-06-10) | Stock cycles ship ready-made; *fantastical* ones (a season where it rains glass, Broken-Earth style) must be YAML-only. Seasons can therefore **add** weather types absent from the base climate (`weatherWeightAdditions`) and **suppress all normal weather** with one knob (`baseWeightScale`) — see §3.1a |
 
 Stock pacing for intuition: 900 rounds/day × 4s rounds = one game day per real
 hour; 365-day year over 12 months ⇒ a month ≈ 1.3 real days, a 3-month season
@@ -92,6 +93,37 @@ seasons:
   for the season. `spawnWeightMultiplier` defaults 1.0. `influence` deltas are
   added to the biome profile's own values (then the sim's existing clamps
   apply). `transitionDays: 0` means a hard flip for that season.
+
+### 3.1a Esoteric seasons — additions and base suppression
+
+Multipliers can only scale weights the biome already has (`3.0 × 0 = 0`), so
+two optional per-season fields make fantastical seasons pure YAML instead of a
+base-climate rewrite:
+
+```yaml
+  - name: shattering            # a Broken-Earth-style Season
+    months: [8, 9]
+    transitionDays: 2
+    baseWeightScale: 0.0        # suppress ALL normal weather (default 1.0)
+    weatherWeightAdditions:     # absolute weights ADDED for this season only —
+      glassrain: 8              #   may introduce types absent from the base climate
+      ashfall: 3
+    spawnWeightMultiplier: 2.0
+    influence: { intensityDelta: 0.05 }
+```
+
+Effective weight per type: `base × lerp(prevScale×prevMult, curScale×curMult)
++ lerp(prevAdd, curAdd)` (additions lerp from/to 0 when a neighboring season
+lacks them, so they blend in and out like everything else). The weather types
+referenced by additions follow the existing new-type recipe (a
+`weather_<type>.yaml` mutator spec + an emote table) — no Go anywhere. A
+season whose effective table is all-zero is well-defined: no new fronts spawn
+in those biomes, existing fronts keep their type until they die, zones resolve
+`Clear` — a "dead sky" season is one line of YAML.
+
+The stock experience is unaffected: the shipped `temperate`/`monsoon` tracks
+use neither field, and standard biomes come pre-bound, so out-of-the-box
+setup remains zero-authoring.
 - **Validation at load:** every calendar month 1..N (N from the world's
   calendar) must be claimed by exactly one season; months outside 1..N, gaps,
   or overlaps ⇒ the track is rejected with a logged warning (fail-soft: biomes
@@ -123,8 +155,9 @@ weather: { ... }
 ### 3.3 Blending
 
 Entering a season, its `transitionDays` window linearly interpolates every
-numeric modifier (weight multipliers, spawn multiplier, influence deltas) from
-the outgoing season's values to the incoming season's. Blend factor is a pure
+numeric modifier (per-type `scale×multiplier` factors, weight additions,
+spawn multiplier, influence deltas) from the outgoing season's values to the
+incoming season's. Blend factor is a pure
 function of `(track, dayOfYear, daysPerYear)`. Only the *climate math* blends;
 mutators, emotes, events, and the reported season flip on the boundary day.
 Year wraparound (last season → first) blends the same way.
