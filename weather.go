@@ -11,6 +11,7 @@ import (
 	"github.com/GoMudEngine/GoMud/modules/weather/content"
 	"github.com/GoMudEngine/GoMud/modules/weather/crawler"
 	"github.com/GoMudEngine/GoMud/modules/weather/engine"
+	"github.com/GoMudEngine/GoMud/modules/weather/seasons"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
@@ -33,6 +34,10 @@ type weatherModule struct {
 	state     sim.State
 	nextTick  uint64 // round number when the next weather tick fires
 	nextEmote uint64 // round number when the next ambient emote pass fires
+
+	tracks      seasons.Tracks                    // loaded season tracks (nil/empty = seasons off)
+	seasonsOn   bool                              // SeasonsEnabled && tracks loaded && calendar usable
+	zoneSeasons map[sim.ZoneId]seasons.ZoneSeason // previous tick's resolution (event diffing)
 }
 
 var module weatherModule
