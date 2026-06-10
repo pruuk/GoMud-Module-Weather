@@ -351,23 +351,19 @@ A versioned JSON/YAML file via `plugin.WriteBytes("geography.json", …)`:
 > `Buffs.Overrides`, bespoke module-shipped buffs, full per-biome default content, OOBE
 > smoke test in CI.
 
-> **BOOT-SMOKE BLOCKER (2026-06-09, M3):** the `weather` command does NOT register at
-> runtime — `weather` returns "weather not recognized." Root cause: M3 moved
-> `plug.AddUserCommand(...)` into the module's `onLoad` callback, but upstream
+> **Boot-smoke finding, RESOLVED (2026-06-09, M3):** the first smoke run found the
+> `weather` command did not register at runtime. Root cause: upstream
 > `internal/plugins/plugins.go::Load()` harvests each plugin's `userCommands` map into
-> the global command registry (`usercommands.RegisterCommand`) *before* invoking that
-> plugin's `onLoad()` — both inside the same per-plugin loop iteration (harvest near the
-> top, `onLoad()` at the bottom). The command is therefore added to the map too late and
-> is never registered. Confirmed empirically: `follow`/`trash` (registered in their
-> modules' `init()`) work; `weather` and `weather status` do not. The fix is to register
-> the command in `init()` (as every shipped module does), not in `onLoad`. Until fixed,
-> the **entire player/admin command set is non-functional**, so §9's interactive behavior
-> (`spawn`/`look`/`fronts`/`clear`, `(storm-wracked)` room titles, controlled
-> reconcile-on-boot) is **UNVERIFIED**. The sim core is unaffected: it boots, ticks,
-> persists, and restores correctly (geography 15 zones; `fresh simulation state` then,
-> across a clean `/shutdown`+reboot, `restored simulation state fronts=0`), because the
-> `NewRound` listener and `onSave` hook register/fire independently of command-harvest
-> timing. (M1b's `weather` command smoke-tested fine, so this is an M3 regression.)
+> the global command registry *before* invoking that plugin's `onLoad()`, so a command
+> registered in `onLoad` is added too late and never exists. Fix: the module registers
+> its command and exported functions in `init()` (as the engine's own modules do);
+> `cfg.Enabled` now gates *behavior* in the handler, not registration. §5.1's
+> `AddUserCommand` guidance should be read with this constraint. After the fix the full
+> interactive smoke checklist passed on the stock world: player `weather` view, `status`,
+> `zones` (15 zones), `spawn storm` → `(storm-wracked)` room title + description +
+> alert, `fronts`, `clear` → mutator removed cleanly (no `decayintoid` resurrection),
+> and a spawn → clean `/shutdown` → reboot cycle showing `restored simulation state
+> fronts=1` with the room mutator re-asserted by reconcile-on-boot, no re-spawn needed.
 
 ---
 
