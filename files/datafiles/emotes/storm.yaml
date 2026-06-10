@@ -1,0 +1,12 @@
+weather: storm
+outdoor:
+  default:
+    - "A blinding fork of lightning splits the sky."
+    - "Thunder cracks directly overhead."
+    - "The wind rises to a shriek, driving the rain sideways."
+  forest:
+    - "Wind tears at the branches; the whole canopy roars."
+indoor:
+  default:
+    - "Rain hammers against the walls and shutters."
+    - "Thunder rattles the timbers; the whole structure groans."

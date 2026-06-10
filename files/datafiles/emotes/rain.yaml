@@ -1,0 +1,12 @@
+weather: rain
+outdoor:
+  default:
+    - "Rain patters down steadily around you."
+    - "A cold runnel of rainwater finds its way down your neck."
+    - "Puddles widen and merge underfoot."
+  forest:
+    - "Rain drips from leaf to leaf, a thousand small drumbeats."
+indoor:
+  default:
+    - "Rain drums on the roof overhead."
+    - "Water trickles past outside; somewhere a slow drip finds its rhythm."

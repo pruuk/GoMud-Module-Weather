@@ -1,0 +1,8 @@
+weather: fog
+outdoor:
+  default:
+    - "The fog coils and shifts, briefly revealing shapes that aren't there."
+    - "Sound arrives strangely muffled through the gray."
+indoor:
+  default:
+    - "Tendrils of fog seep in around the edges of the room."

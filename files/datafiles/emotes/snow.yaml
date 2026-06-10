@@ -1,0 +1,8 @@
+weather: snow
+outdoor:
+  default:
+    - "Fat snowflakes spiral down in lazy silence."
+    - "Snow creaks and squeaks beneath every footstep."
+indoor:
+  default:
+    - "Snowflakes whirl past outside; the cold radiates from the walls."

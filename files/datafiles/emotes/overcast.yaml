@@ -1,0 +1,8 @@
+weather: overcast
+outdoor:
+  default:
+    - "The clouds overhead thicken, swallowing what light there was."
+    - "A dull gray sky presses down on the world."
+indoor:
+  default:
+    - "The light through the openings dims as clouds gather outside."

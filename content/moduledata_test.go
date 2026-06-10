@@ -25,6 +25,40 @@ func fileNameFor(id string) string {
 	return b.String() + ".yaml"
 }
 
+// TestShippedEmoteTables validates the default emote tables: parseable, the
+// weather key matches the filename stem, and every type has at least one
+// outdoor-default and one indoor-default line.
+func TestShippedEmoteTables(t *testing.T) {
+	dir := "../files/datafiles/emotes"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("emote tables missing: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no emote tables shipped")
+	}
+	for _, e := range entries {
+		b, err := os.ReadFile(dir + "/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		table, err := ParseEmoteTable(b)
+		if err != nil {
+			t.Errorf("%s: %v", e.Name(), err)
+			continue
+		}
+		if want := table.Weather + ".yaml"; e.Name() != want {
+			t.Errorf("%s: filename should match weather key (%s)", e.Name(), want)
+		}
+		if len(table.Outdoor["default"]) == 0 {
+			t.Errorf("%s: needs at least one outdoor default line", e.Name())
+		}
+		if len(table.Indoor["default"]) == 0 {
+			t.Errorf("%s: needs at least one indoor default line", e.Name())
+		}
+	}
+}
+
 // TestShippedMutatorSpecs validates the data files the engine will load:
 // parseable YAML, weather- namespaced ids, loader-compatible filenames, no
 // respawnrate (it would fight the orchestrator and block purge-on-remove).

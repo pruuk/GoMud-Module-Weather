@@ -1,0 +1,8 @@
+weather: dust
+outdoor:
+  default:
+    - "A gritty wall of dust rolls through, stinging your eyes."
+    - "The wind hisses, dragging veils of dust across the ground."
+indoor:
+  default:
+    - "Fine dust sifts in from outside, settling over everything."

@@ -1,0 +1,8 @@
+weather: blizzard
+outdoor:
+  default:
+    - "The blizzard howls, erasing the world beyond a few paces."
+    - "Wind-driven ice crystals sting every inch of exposed skin."
+indoor:
+  default:
+    - "The blizzard screams past outside; drafts knife through every crack."

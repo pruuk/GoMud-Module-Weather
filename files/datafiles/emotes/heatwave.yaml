@@ -1,0 +1,8 @@
+weather: heatwave
+outdoor:
+  default:
+    - "Heat radiates up from the ground in shimmering waves."
+    - "The air is thick and stifling; sweat beads instantly."
+indoor:
+  default:
+    - "The trapped air is stiflingly hot and utterly still."
