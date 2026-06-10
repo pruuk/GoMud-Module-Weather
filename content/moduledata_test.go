@@ -74,6 +74,44 @@ func TestShippedEmoteTables(t *testing.T) {
 	}
 }
 
+// TestShippedSeasonalAmbience validates the seasonal ambience tables: they
+// load, cover exactly the shipped tracks' seasons, use <track>_<season>.yaml
+// filenames, and each has outdoor+indoor default lines.
+func TestShippedSeasonalAmbience(t *testing.T) {
+	st, err := LoadSeasonalEmotes(os.DirFS("../files/datafiles"), "emotes/seasons")
+	if err != nil {
+		t.Fatalf("seasonal ambience failed to load: %v", err)
+	}
+	want := []SeasonalKey{
+		{"temperate", "winter"}, {"temperate", "spring"},
+		{"temperate", "summer"}, {"temperate", "autumn"},
+		{"monsoon", "wet"}, {"monsoon", "dry"},
+	}
+	if len(st) != len(want) {
+		t.Errorf("expected %d ambience tables, got %d", len(want), len(st))
+	}
+	for _, k := range want {
+		sec, ok := st[k]
+		if !ok {
+			t.Errorf("missing ambience table for %v", k)
+			continue
+		}
+		if len(sec.Outdoor["default"]) == 0 || len(sec.Indoor["default"]) == 0 {
+			t.Errorf("%v: needs outdoor and indoor default lines", k)
+		}
+	}
+	entries, _ := os.ReadDir("../files/datafiles/emotes/seasons")
+	for _, e := range entries {
+		// Filename rule (ours, not the engine's): <track>_<season>.yaml.
+		var f struct{ Track, Season string }
+		b, _ := os.ReadFile("../files/datafiles/emotes/seasons/" + e.Name())
+		_ = yaml.Unmarshal(b, &f)
+		if wantName := f.Track + "_" + f.Season + ".yaml"; e.Name() != wantName {
+			t.Errorf("%s: filename should be %s", e.Name(), wantName)
+		}
+	}
+}
+
 // TestShippedMutatorSpecs validates the data files the engine will load:
 // parseable YAML, weather- or season- namespaced ids, loader-compatible
 // filenames, no respawnrate (it would fight the orchestrator and block
