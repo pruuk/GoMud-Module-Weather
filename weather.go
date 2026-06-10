@@ -39,6 +39,8 @@ type weatherModule struct {
 	tracks      seasons.Tracks                    // loaded season tracks (nil/empty = seasons off)
 	seasonsOn   bool                              // SeasonsEnabled && tracks loaded && calendar usable
 	zoneSeasons map[sim.ZoneId]seasons.ZoneSeason // previous tick's resolution (event diffing)
+
+	lastAdminAction string // most recent admin-page action result (snapshot field)
 }
 
 var module weatherModule
@@ -138,6 +140,7 @@ func (m *weatherModule) rebuildGraph() {
 			engine.ReconcileSeasons(m.graph, m.zoneSeasons)
 		}
 	}
+	m.publishSnapshot()
 }
 
 // sendLine writes one line to a user. It is the ONLY place this module calls the
