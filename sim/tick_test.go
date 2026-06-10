@@ -207,3 +207,42 @@ func TestEvolveTypes_StationaryFrontKeepsType(t *testing.T) {
 		}
 	}
 }
+
+func TestSpawnFronts_RespectsBudget(t *testing.T) {
+	g := twoZoneGraph()
+	climate := DefaultClimate()
+	cfg := DefaultConfig()
+	cfg.MaxActiveFronts = 2
+	cfg.SpawnChance = 1.0 // always try to spawn
+
+	st := State{RNGState: 1, NextID: 1, Weather: map[ZoneId]WeatherType{}}
+	// Run many ticks; fronts accumulate but never exceed the budget.
+	for i := 0; i < 50; i++ {
+		var diff StateDiff
+		st, diff = Step(st, g, climate, cfg, Clock{Round: uint64(i + 1)})
+		_ = diff
+		if len(st.Fronts) > cfg.MaxActiveFronts {
+			t.Fatalf("front count %d exceeded budget %d at tick %d", len(st.Fronts), cfg.MaxActiveFronts, i)
+		}
+	}
+}
+
+func TestSpawnFronts_AssignsIncrementingIDs(t *testing.T) {
+	g := twoZoneGraph()
+	cfg := DefaultConfig()
+	cfg.SpawnChance = 1.0
+	rng := NewRNG(5)
+	fronts, nextID := spawnFronts(nil, g, DefaultClimate(), cfg, rng, FrontId(10))
+	if len(fronts) != 1 {
+		t.Fatalf("expected one spawned front, got %d", len(fronts))
+	}
+	if fronts[0].Id != 10 {
+		t.Errorf("spawned front should take nextID 10, got %d", fronts[0].Id)
+	}
+	if nextID != 11 {
+		t.Errorf("nextID should advance to 11, got %d", nextID)
+	}
+	if fronts[0].Intensity <= 0 {
+		t.Error("spawned front should start with positive intensity")
+	}
+}

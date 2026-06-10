@@ -300,8 +300,62 @@ func pickWeatherType(profile ClimateProfile, current WeatherType, keepBias float
 	return keys[len(keys)-1]
 }
 
-// --- stubs replaced in later tasks ---
-
+// spawnFronts may add one new front when under budget. It draws once on
+// SpawnChance, then picks an origin zone weighted by climate SpawnWeight and a
+// type from that zone's climate. New fronts start at moderate intensity/moisture.
 func spawnFronts(fronts []Front, g *Graph, climate Climate, cfg Config, rng *RNG, nextID FrontId) ([]Front, FrontId) {
-	return fronts, nextID
+	if len(fronts) >= cfg.MaxActiveFronts {
+		return fronts, nextID
+	}
+	if rng.Float64() >= cfg.SpawnChance {
+		return fronts, nextID
+	}
+	origin := pickSpawnZone(g, climate, rng)
+	if origin == "" {
+		return fronts, nextID
+	}
+	profile := climate.For(g.Nodes[origin].Biome)
+	wtype := pickWeatherType(profile, "", 0, rng)
+	if wtype == "" {
+		return fronts, nextID
+	}
+	f := Front{
+		Id:        nextID,
+		Type:      wtype,
+		Zone:      origin,
+		Intensity: 0.4 + 0.3*rng.Float64(), // 0.4..0.7
+		Moisture:  0.5,
+		Age:       0,
+		MaxAge:    12 + rng.Intn(24), // 12..35 ticks
+		History:   nil,
+	}
+	return append(fronts, f), nextID + 1
+}
+
+// pickSpawnZone selects an origin zone weighted by climate SpawnWeight (zones
+// iterated in sorted order for determinism).
+func pickSpawnZone(g *Graph, climate Climate, rng *RNG) ZoneId {
+	zones := g.Zones()
+	total := 0.0
+	for _, z := range zones {
+		w := climate.For(g.Nodes[z].Biome).SpawnWeight
+		if w > 0 {
+			total += w
+		}
+	}
+	if total <= 0 {
+		return ""
+	}
+	r := rng.Float64() * total
+	for _, z := range zones {
+		w := climate.For(g.Nodes[z].Biome).SpawnWeight
+		if w <= 0 {
+			continue
+		}
+		if r < w {
+			return z
+		}
+		r -= w
+	}
+	return zones[len(zones)-1]
 }
