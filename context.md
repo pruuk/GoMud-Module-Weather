@@ -16,8 +16,9 @@ goroutine — no synchronization needed.
   `mutators/*` from it via the plugin registry, `content` loaders read the
   rest). `weatherModule` struct (plug, cfg, graph, started, simReady,
   simCfg, climate, tables, state, nextTick, nextEmote; plus `tracks
-  seasons.Tracks`, `seasonsOn bool`, `zoneSeasons map[sim.ZoneId]seasons.ZoneSeason`
-  for the seasons layer). `init()` → `plugins.New` + `AttachFileSystem` +
+  seasons.Tracks`, `seasonsOn bool`, `zoneSeasons map[sim.ZoneId]seasons.ZoneSeason`,
+  and `seasonalTables content.SeasonalTables` (the standalone seasonal-ambience
+  emote tables) for the seasons layer). `init()` → `plugins.New` + `AttachFileSystem` +
   `SetOnLoad`, then registers the `weather` command as a **player** command
   (not admin-only; admin subcommands are gated in-handler) and the exports.
   Command/export registration MUST happen in `init()`, not `onLoad`:
@@ -26,7 +27,10 @@ goroutine — no synchronization needed.
   Behavior is gated on `cfg.Enabled`/`simReady` in-handler instead. `onLoad`:
   loads config, then (when enabled) registers `SetOnSave` and a `NewRound`
   listener. `onNewRound`: one-time startup (loadOrBuildGraph + startSim), the
-  jittered ambient-emote pass, and the coarse weather tick. `loadOrBuildGraph`/
+  jittered ambient-emote pass
+  (`engine.EmitAmbient(m.state.Weather, m.zoneSeasons, m.tables, m.seasonalTables, util.Rand)`
+  — the single arbiter; passes nil season maps harmlessly when seasons are off),
+  and the coarse weather tick. `loadOrBuildGraph`/
   `rebuildGraph`: cache-or-crawl; `rebuildGraph` also calls `startSim`,
   `engine.Reconcile`, and (when `seasonsOn`) recomputes `m.zoneSeasons` and
   calls `engine.ReconcileSeasons` (post-rebuild heal — prevents stale-zone
@@ -39,8 +43,9 @@ goroutine — no synchronization needed.
   `events.RegisterListener(weather.WeatherSeasonChanged{}, handler)`. Implements
   `events.Event` via the `Type() string` method.
 - **weather_tick.go**: `startSim` (idempotent; graceful degradation — logs once
-  and stays idle when no graph exists). `loadContent` (climate overrides + emote
-  tables from the embedded FS, both fail-soft). `loadSeasons` — fail-soft
+  and stays idle when no graph exists). `loadContent` (climate overrides, weather
+  emote tables, and the seasonal-ambience tables — `content.LoadSeasonalEmotes`
+  into `m.seasonalTables` — from the embedded FS, all fail-soft). `loadSeasons` — fail-soft
   ladder: `SeasonsEnabled: false` → skip; no usable calendar → skip; no/invalid
   tracks → skip; each rejection leaves `seasonsOn = false` so weather runs
   exactly as v1. On success sets `m.seasonsOn = true`, stores tracks, and
