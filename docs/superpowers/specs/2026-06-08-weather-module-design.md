@@ -336,6 +336,39 @@ A versioned JSON/YAML file via `plugin.WriteBytes("geography.json", …)`:
 
 > **Status (2026-06-09, M1b):** engine-backed WorldReader, versioned cache persistence, first-round build, and the `weather` admin command (summary/graph/rebuild) are implemented and smoke-tested on upstream GoMud's default world (15 zones; build → persist → reload verified). §6 is complete. The only DOGMud backport delta is the one-line sendLine helper.
 
+> **Status (2026-06-09, M3):** §8–§10 are implemented at the code level — zone-wide
+> mutator application driven by the sim's per-zone weather (with `engine.Reconcile` as
+> the single application path), module-shipped weather mutator specs loaded via the
+> engine's plugin-FS support (`mutators.LoadDataFiles() loadedCount=18` on the stock
+> world — 10 disk + 8 plugin — with no `duplicate mutator id`/`filepath mismatch`
+> errors; upstream now supports module mutator AND buff overlays — R-core-1's
+> contingency landed; v1 still reuses engine buff ids 31/33), gametime-scheduled ticks,
+> state persistence with reconcile-on-boot, indoor-aware ambient emotes, the player/admin
+> command handler, and the exported GetWeather/GetFronts/SpawnFront API. Found & fixed
+> during execution: upstream `MutatorList.Remove` instantly resurrects mutators whose
+> spec has `decayintoid` (no liveness guard in the decay branch), so weather specs carry
+> `decayrate` only. Deferred to M4: per-room indoor/biome mutator variants,
+> `Buffs.Overrides`, bespoke module-shipped buffs, full per-biome default content, OOBE
+> smoke test in CI.
+
+> **BOOT-SMOKE BLOCKER (2026-06-09, M3):** the `weather` command does NOT register at
+> runtime — `weather` returns "weather not recognized." Root cause: M3 moved
+> `plug.AddUserCommand(...)` into the module's `onLoad` callback, but upstream
+> `internal/plugins/plugins.go::Load()` harvests each plugin's `userCommands` map into
+> the global command registry (`usercommands.RegisterCommand`) *before* invoking that
+> plugin's `onLoad()` — both inside the same per-plugin loop iteration (harvest near the
+> top, `onLoad()` at the bottom). The command is therefore added to the map too late and
+> is never registered. Confirmed empirically: `follow`/`trash` (registered in their
+> modules' `init()`) work; `weather` and `weather status` do not. The fix is to register
+> the command in `init()` (as every shipped module does), not in `onLoad`. Until fixed,
+> the **entire player/admin command set is non-functional**, so §9's interactive behavior
+> (`spawn`/`look`/`fronts`/`clear`, `(storm-wracked)` room titles, controlled
+> reconcile-on-boot) is **UNVERIFIED**. The sim core is unaffected: it boots, ticks,
+> persists, and restores correctly (geography 15 zones; `fresh simulation state` then,
+> across a clean `/shutdown`+reboot, `restored simulation state fronts=0`), because the
+> `NewRound` listener and `onSave` hook register/fire independently of command-harvest
+> timing. (M1b's `weather` command smoke-tested fine, so this is an M3 regression.)
+
 ---
 
 ## 7. Sub-Project 2 — Weather Simulation Core (`sim/`)
