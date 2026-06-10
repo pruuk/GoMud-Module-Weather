@@ -8,6 +8,9 @@ import (
 // registerExports exposes the module API to other modules and JS scripts via
 // plugin.ExportFunction (spec §9.7). All exports guard simReady so callers
 // during boot (or in degraded mode) get empty-but-valid answers.
+// Mutating exports rely on the engine invoking exported functions on the
+// MainWorker goroutine (the same single-goroutine guarantee as commands and
+// events).
 func (m *weatherModule) registerExports() {
 	m.plug.ExportFunction(`GetWeather`, m.exportGetWeather)
 	m.plug.ExportFunction(`GetFronts`, m.exportGetFronts)
@@ -63,12 +66,12 @@ func (m *weatherModule) exportSpawnFront(wtype string, zone string, intensity fl
 	if !ok {
 		return false
 	}
-	next, diff, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), canonical, intensity, sim.Clock{Round: engine.CurrentRound()})
+	next, _, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), canonical, intensity, sim.Clock{Round: engine.CurrentRound()})
 	if !ok {
 		return false
 	}
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
 	return true
 }

@@ -40,7 +40,7 @@ func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *ro
 	case "clear":
 		m.cmdClear(user, args[1:])
 	case "graph":
-		zone := strings.TrimSpace(rest[len(args[0]):])
+		zone := strings.Join(args[1:], " ")
 		if zone == "" && room != nil {
 			zone = room.Zone
 		}
@@ -137,13 +137,13 @@ func (m *weatherModule) cmdSpawn(user *users.UserRecord, parts []string) {
 		sendLine(user, fmt.Sprintf("Weather: zone %q is not in the graph.", strings.Join(rest, " ")))
 		return
 	}
-	next, diff, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), zone, intensity, sim.Clock{Round: engine.CurrentRound()})
+	next, _, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), zone, intensity, sim.Clock{Round: engine.CurrentRound()})
 	if !ok {
 		sendLine(user, "Weather: spawn failed.")
 		return
 	}
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
 	f := m.state.Fronts[len(m.state.Fronts)-1]
 	sendLine(user, fmt.Sprintf("Spawned front #%d: %s @ %s, intensity %.2f.", f.Id, f.Type, f.Zone, f.Intensity))
@@ -167,9 +167,9 @@ func (m *weatherModule) cmdClear(user *users.UserRecord, parts []string) {
 	before := len(m.state.Fronts)
 	next, diff := sim.ClearZones(m.state, m.graph, m.simCfg, zones, sim.Clock{Round: engine.CurrentRound()})
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
-	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s) applied.", before-len(m.state.Fronts), len(diff.Changes)))
+	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s).", before-len(m.state.Fronts), len(diff.Changes)))
 }
 
 func (m *weatherModule) printStatus(user *users.UserRecord) {

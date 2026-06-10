@@ -121,6 +121,9 @@ func (m *weatherModule) rebuildGraph() {
 	mudlog.Info("Weather: built geography graph",
 		"zones", len(g.Nodes), "edges", len(g.Edges), "components", g.Components)
 	m.startSim(util.GetRoundCount())
+	if m.simReady {
+		engine.Reconcile(m.state.Weather)
+	}
 }
 
 // sendLine writes one line to a user. It is the ONLY place this module calls the

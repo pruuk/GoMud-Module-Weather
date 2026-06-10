@@ -2347,6 +2347,8 @@ In `rebuildGraph`, after the success log line, add (so a `weather rebuild` that 
 	m.startSim(util.GetRoundCount())
 ```
 
+followed by a guarded "if m.simReady { engine.Reconcile(m.state.Weather) }" so a rebuild while running re-asserts mutators against the new graph immediately.
+
 Add `"github.com/GoMudEngine/GoMud/modules/weather/content"` to the imports.
 
 - [ ] **Step 2: Create `weather_tick.go`**
@@ -2474,7 +2476,7 @@ func (m *weatherModule) scheduleEmote(round uint64) {
 }
 ```
 
-(Reconcile supersedes Apply on the tick path: it re-asserts mutators that engine-side decayrate dropped between ticks. Apply(diff) remains the right call for the command paths — spawn/clear — where the previous tick's reconcile guarantees a clean baseline.)
+(Reconcile supersedes Apply everywhere module state reaches the engine — tick, spawn/clear commands, exported SpawnFront, and post-rebuild — so engine-side decayrate drift always self-corrects and there is exactly one application path. Apply(diff) survives only as the tested low-level primitive.)
 
 - [ ] **Step 3: Stub the not-yet-written references so the package compiles** — `registerExports` and the `cmdWeather` rework land in Tasks 16–17. For THIS task's commit, add a minimal `registerExports` placeholder in `weather_tick.go`... **No — placeholders are forbidden.** Instead: implement Tasks 15–17 as one *build unit* but keep commits separate by writing this task's files now and running the build only at the end of Task 17 if `go build` fails here. Practical sequencing: complete Steps 1–2 above, then immediately do Task 16 and Task 17, then run the verification step below once — committing each task's files separately in order (`git add` only that task's files). The existing `cmdWeather` from M1b still compiles against this task alone, and `registerExports` arrives in Task 17 — so after Task 15 alone the build FAILS on the one `m.registerExports()` call. Acceptable mid-sequence state; do NOT push between these commits.
 
@@ -2638,13 +2640,13 @@ func (m *weatherModule) cmdSpawn(user *users.UserRecord, parts []string) {
 		sendLine(user, fmt.Sprintf("Weather: zone %q is not in the graph.", strings.Join(rest, " ")))
 		return
 	}
-	next, diff, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), zone, intensity, sim.Clock{Round: engine.CurrentRound()})
+	next, _, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), zone, intensity, sim.Clock{Round: engine.CurrentRound()})
 	if !ok {
 		sendLine(user, "Weather: spawn failed.")
 		return
 	}
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
 	f := m.state.Fronts[len(m.state.Fronts)-1]
 	sendLine(user, fmt.Sprintf("Spawned front #%d: %s @ %s, intensity %.2f.", f.Id, f.Type, f.Zone, f.Intensity))
@@ -2668,9 +2670,9 @@ func (m *weatherModule) cmdClear(user *users.UserRecord, parts []string) {
 	before := len(m.state.Fronts)
 	next, diff := sim.ClearZones(m.state, m.graph, m.simCfg, zones, sim.Clock{Round: engine.CurrentRound()})
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
-	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s) applied.", before-len(m.state.Fronts), len(diff.Changes)))
+	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s).", before-len(m.state.Fronts), len(diff.Changes)))
 }
 
 func (m *weatherModule) printStatus(user *users.UserRecord) {
@@ -2806,12 +2808,12 @@ func (m *weatherModule) exportSpawnFront(wtype string, zone string, intensity fl
 	if !ok {
 		return false
 	}
-	next, diff, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), canonical, intensity, sim.Clock{Round: engine.CurrentRound()})
+	next, _, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(wtype), canonical, intensity, sim.Clock{Round: engine.CurrentRound()})
 	if !ok {
 		return false
 	}
 	m.state = next
-	engine.Apply(diff)
+	engine.Reconcile(m.state.Weather)
 	m.persistState()
 	return true
 }
