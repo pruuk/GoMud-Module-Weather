@@ -33,6 +33,7 @@ func ForceSpawn(prev State, g *Graph, cfg Config, wtype WeatherType, zone ZoneId
 // every front. With zones, any front whose coverage projection reaches one of
 // them is removed — so the named zone actually clears rather than staying
 // covered by a neighboring front. Pure; no RNG consumed.
+// Kept fronts share their History backing arrays with prev.Fronts; callers that will later mutate Front fields must pass the result through cloneFronts (Step does).
 func ClearZones(prev State, g *Graph, cfg Config, zones []ZoneId, now Clock) (State, StateDiff) {
 	next := prev
 	next.Round = now.Round

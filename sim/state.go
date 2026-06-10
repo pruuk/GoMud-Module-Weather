@@ -15,6 +15,7 @@ func NewState(seed uint64) State {
 // (FNV-1a), so each world gets the same seed on every boot but two worlds
 // differ. Used when the configured Seed is 0.
 func DeriveSeed(g *Graph) uint64 {
+	// FNV-1a 64-bit offset basis / prime.
 	const prime = 1099511628211
 	h := uint64(14695981039346656037)
 	for _, z := range g.Zones() {

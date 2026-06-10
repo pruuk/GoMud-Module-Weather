@@ -75,4 +75,12 @@ func TestClearZones(t *testing.T) {
 			t.Errorf("zone %s should be clear, got %s", z, w)
 		}
 	}
+
+	// Original state untouched (pure function).
+	if st.Weather["A"] != "storm" || st.Weather["D"] != "fog" {
+		t.Error("ClearZones must not mutate the input state's Weather map")
+	}
+	if len(st.Fronts) != 2 {
+		t.Errorf("ClearZones must not mutate the input state's Fronts slice: %v", st.Fronts)
+	}
 }
