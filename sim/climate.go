@@ -15,6 +15,9 @@ type ClimateProfile struct {
 	Weather     map[WeatherType]float64 `json:"weather"`
 	Influence   WeatherInfluence        `json:"influence"`
 	SpawnWeight float64                 `json:"spawnWeight"`
+	// Track names the season cycle this biome follows (seasons package);
+	// "" = no seasons for this biome. Carried as data — Step ignores it.
+	Track string `json:"track,omitempty"`
 }
 
 // Climate maps biome id -> profile. Use For() to resolve with default fallback.
@@ -72,16 +75,19 @@ func DefaultClimate() Climate {
 			Weather:     map[WeatherType]float64{"clear": 5, "overcast": 3, "rain": 3, "storm": 2},
 			Influence:   WeatherInfluence{IntensityDelta: 0.02, MoistureDelta: 0, MovementResistance: 0.05},
 			SpawnWeight: 1.2,
+			Track:       "temperate",
 		},
 		"forest": {
 			Weather:     map[WeatherType]float64{"clear": 4, "overcast": 4, "rain": 4, "fog": 3},
 			Influence:   WeatherInfluence{IntensityDelta: -0.01, MoistureDelta: 0.02, MovementResistance: 0.15},
 			SpawnWeight: 1.0,
+			Track:       "temperate",
 		},
 		"mountain": {
 			Weather:     map[WeatherType]float64{"overcast": 4, "snow": 4, "storm": 2, "fog": 3},
 			Influence:   WeatherInfluence{IntensityDelta: -0.15, MoistureDelta: -0.10, MovementResistance: 0.5},
 			SpawnWeight: 0.8,
+			Track:       "temperate",
 		},
 		"desert": {
 			Weather:     map[WeatherType]float64{"clear": 7, "dust": 3, "heatwave": 2},
@@ -92,16 +98,19 @@ func DefaultClimate() Climate {
 			Weather:     map[WeatherType]float64{"clear": 5, "overcast": 4, "snow": 6, "blizzard": 2, "fog": 2},
 			Influence:   WeatherInfluence{IntensityDelta: -0.05, MoistureDelta: -0.02, MovementResistance: 0.2},
 			SpawnWeight: 1.0,
+			Track:       "temperate",
 		},
 		"swamp": {
 			Weather:     map[WeatherType]float64{"overcast": 4, "rain": 5, "fog": 5, "storm": 2},
 			Influence:   WeatherInfluence{IntensityDelta: 0.01, MoistureDelta: 0.05, MovementResistance: 0.2},
 			SpawnWeight: 1.1,
+			Track:       "temperate",
 		},
 		"ocean": {
 			Weather:     map[WeatherType]float64{"clear": 3, "overcast": 4, "rain": 4, "storm": 4, "fog": 2},
 			Influence:   WeatherInfluence{IntensityDelta: 0.06, MoistureDelta: 0.08, MovementResistance: 0.02},
 			SpawnWeight: 1.5,
+			Track:       "temperate",
 		},
 	}
 }

@@ -20,6 +20,20 @@ func TestClimateForFallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestDefaultClimateTrackBindings(t *testing.T) {
+	c := DefaultClimate()
+	for _, biome := range []string{"plains", "forest", "mountain", "tundra", "swamp", "ocean"} {
+		if c[biome].Track != "temperate" {
+			t.Errorf("%s should bind to temperate, got %q", biome, c[biome].Track)
+		}
+	}
+	for _, biome := range []string{"desert", "default"} {
+		if c[biome].Track != "" {
+			t.Errorf("%s should be unbound, got %q", biome, c[biome].Track)
+		}
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.MaxActiveFronts <= 0 {
