@@ -12,6 +12,7 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/rooms"
 	"github.com/GoMudEngine/GoMud/internal/users"
 	"github.com/GoMudEngine/GoMud/internal/util"
+	"github.com/GoMudEngine/GoMud/modules/weather/content"
 	"github.com/GoMudEngine/GoMud/modules/weather/crawler"
 	"github.com/GoMudEngine/GoMud/modules/weather/engine"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
@@ -20,13 +21,22 @@ import (
 //go:embed files/*
 var files embed.FS
 
-// weatherModule holds the plugin handle, resolved config, the current geography
-// graph, and a one-shot flag for the first-round build.
+// weatherModule holds the plugin handle, resolved config, the geography graph,
+// and the live simulation (state/climate/emote tables/schedule). All fields are
+// touched only from the single game-loop goroutine — no synchronization needed.
 type weatherModule struct {
 	plug    *plugins.Plugin
 	cfg     Config
 	graph   *sim.Graph
 	started bool
+
+	simReady  bool   // graph + content + state loaded; ticking enabled
+	simCfg    sim.Config
+	climate   sim.Climate
+	tables    content.Tables
+	state     sim.State
+	nextTick  uint64 // round number when the next weather tick fires
+	nextEmote uint64 // round number when the next ambient emote pass fires
 }
 
 var module weatherModule
@@ -39,26 +49,42 @@ func init() {
 	module.plug.Callbacks.SetOnLoad(module.onLoad)
 }
 
-// onLoad loads config and registers the command + a NewRound listener. It does
-// NOT build the graph: onLoad's timing relative to world load is engine-specific,
-// so the world crawl is deferred to the first NewRound, when rooms are loaded.
+// onLoad loads config and registers the command, exports, and listeners. World
+// crawling and sim startup are deferred to the first NewRound (engine-specific
+// onLoad timing vs world load).
 func (m *weatherModule) onLoad() {
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
 		return
 	}
-	m.plug.AddUserCommand(`weather`, m.cmdWeather, false, true) // admin-only for M1b
+	m.plug.AddUserCommand(`weather`, m.cmdWeather, false, false) // player command; admin subcommands gated in-handler
+	m.registerExports()
+	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
 }
 
-// onNewRound builds (or loads) the geography graph once, on the first round
-// after boot, then no-ops every subsequent round.
+// onNewRound drives everything round-based: one-time startup, the jittered
+// ambient-emote pass, and the coarse weather tick.
 func (m *weatherModule) onNewRound(e events.Event) events.ListenerReturn {
-	if m.started {
+	evt, ok := e.(events.NewRound)
+	if !ok {
 		return events.Continue
 	}
-	m.started = true
-	m.loadOrBuildGraph()
+	if !m.started {
+		m.started = true
+		m.loadOrBuildGraph()
+		m.startSim(evt.RoundNumber)
+	}
+	if !m.simReady {
+		return events.Continue
+	}
+	if m.cfg.EmoteMode == EmoteModeModule && evt.RoundNumber >= m.nextEmote {
+		engine.EmitAmbient(m.state.Weather, m.tables, util.Rand)
+		m.scheduleEmote(evt.RoundNumber)
+	}
+	if evt.RoundNumber >= m.nextTick {
+		m.tick(evt.RoundNumber)
+	}
 	return events.Continue
 }
 
@@ -98,6 +124,7 @@ func (m *weatherModule) rebuildGraph() {
 	}
 	mudlog.Info("Weather: built geography graph",
 		"zones", len(g.Nodes), "edges", len(g.Edges), "components", g.Components)
+	m.startSim(util.GetRoundCount())
 }
 
 // sendLine writes one line to a user. It is the ONLY place this module calls the
