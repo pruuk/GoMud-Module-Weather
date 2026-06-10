@@ -108,3 +108,15 @@ func TestBuildConfigClampsFrontBudgetAndSeed(t *testing.T) {
 		t.Errorf("negative Seed must clamp to 0 (derive-from-world): %d", cfg.Seed)
 	}
 }
+
+func TestSeasonsEnabledConfig(t *testing.T) {
+	if cfg := buildConfig(func(string) any { return nil }); !cfg.SeasonsEnabled {
+		t.Error("SeasonsEnabled must default true")
+	}
+	off := buildConfig(func(k string) any {
+		return map[string]any{"SeasonsEnabled": false}[k]
+	})
+	if off.SeasonsEnabled {
+		t.Error("SeasonsEnabled override ignored")
+	}
+}

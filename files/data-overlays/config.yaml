@@ -11,3 +11,4 @@ EmoteMode: module          # module = we emit ambiance | tag-only = your scripts
 EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)
 BuffsEnabled: true         # apply the curated default buffs carried by weather mutators
 Persist: true              # save/restore fronts + RNG across reboots
+SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
