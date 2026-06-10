@@ -73,14 +73,15 @@ it.
 
 ### Standalone tests (no checkout required)
 
-The pure packages (`sim/`, `crawler/`, `content/`) are fully testable in the
-standalone repo:
+The pure packages (`sim/`, `crawler/`, `content/`, `seasons/`) are fully
+testable in the standalone repo:
 
 ```
-go test ./sim/... ./crawler/... ./content/...
+go test ./sim/... ./crawler/... ./content/... ./seasons/...
 ```
 
-`content/` depends on `gopkg.in/yaml.v2` — the engine's own YAML library. The
+`content/` and `seasons/` depend on `gopkg.in/yaml.v2` — the engine's own YAML
+library. The
 standalone `go.mod` carries it so these tests run without a checkout. The
 `go.mod` and `go.sum` in this repo are **never** synced to a checkout; the
 checkout's own dependency graph applies once the module is dropped in.
