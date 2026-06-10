@@ -280,6 +280,28 @@ calendar the tracks don't fit ⇒ log once, run exactly as v1 weather.
   calendar helper, effective-climate transform wired into the tick,
   `GetSeason`, `WeatherSeasonChanged`, command/status surface,
   `SeasonsEnabled`. *Observable: weather odds shift with the calendar.*
+
+  > **2026-06-10 — S1 implemented and smoke-verified.** Standalone + checkout
+  > suites green (`go test`/`go vet`/`gofmt`, plus `go generate`/`go build` in
+  > the GoMud checkout). Boot on the stock world logs
+  > `Weather: seasons active tracks=2 seasonalZones=1` with no season warnings;
+  > both tracks load (`temperate`, `monsoon`). Odds shift with the calendar via
+  > the EffectiveClimate transform on the tick; `GetSeason`,
+  > `WeatherSeasonChanged`, and the `weather`/`weather seasons`/`weather status`
+  > command surface are all live. `weather` in the one seasonal zone (Dark
+  > Forest, `forest`→`temperate`) reports "The season here is winter," matching
+  > calendar day 1/365 = month 1 (Arvalon) under the temperate mapping.
+  > `SeasonsEnabled: false` rebuilds to clean v1 behavior (no `seasons active`
+  > line, `weather seasons` → off, weather still simulates); re-enabling
+  > re-baselines on reboot with the persisted state restored and no
+  > `WeatherSeasonChanged` event flood. Notes: only **1** zone is seasonal on the
+  > stock world because just `forest` among the crawled biomes maps to a track —
+  > other temperate-mapped biomes are absent and several crawler biome names
+  > (`mountains`/`shore`/`snow`) don't match the `DefaultClimate` keys
+  > (`mountain`/`ocean`/`tundra`), and the `monsoon` track has no biome bound to
+  > it; revisit biome→climate coverage in S2. This GoMud build also has no `time`
+  > user command, so the month was cross-checked via the calendar directly. S2
+  > (seasonal mechanics) is next.
 - **S2 — Seasonal mechanics:** `ReconcileSeasons` layer, default
   `season_*` mutator specs (temperate ×4, monsoon ×2) with curated buffs,
   exits seam + builder docs, shipped-data test extension.
