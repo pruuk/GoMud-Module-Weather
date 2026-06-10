@@ -15,6 +15,7 @@ import (
 // otherwise expect all-lowercase keys).
 type climateFile struct {
 	Biome     string             `yaml:"biome"`
+	Track     string             `yaml:"track"`
 	Weather   map[string]float64 `yaml:"weather"`
 	Influence struct {
 		IntensityDelta     float64 `yaml:"intensityDelta"`
@@ -41,6 +42,7 @@ func ParseClimate(b []byte) (string, sim.ClimateProfile, error) {
 			MovementResistance: cf.Influence.MovementResistance,
 		},
 		SpawnWeight: cf.SpawnWeight,
+		Track:       cf.Track,
 	}
 	for k, v := range cf.Weather {
 		p.Weather[sim.WeatherType(k)] = v
