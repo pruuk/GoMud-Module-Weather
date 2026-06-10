@@ -208,6 +208,55 @@ func TestEvolveTypes_StationaryFrontKeepsType(t *testing.T) {
 	}
 }
 
+func TestEvolveTypes_LingeringFrontKeepsType(t *testing.T) {
+	// Pipeline check: a front in a max-resistance zone always lingers, so after
+	// moveFronts + evolveTypes its type must be unchanged. "storm" is NOT in the
+	// stuck biome's weather set, so a wrong re-roll would change it.
+	g := &Graph{
+		Nodes: map[string]ZoneNode{"S": {Zone: "S", Biome: "stuck"}, "X": {Zone: "X", Biome: "stuck"}},
+		Edges: []Edge{{A: "S", B: "X", Weight: 1}},
+	}
+	climate := Climate{
+		"stuck":   {Weather: map[WeatherType]float64{"clear": 5, "snow": 5}, Influence: WeatherInfluence{MovementResistance: 1.0}, SpawnWeight: 1},
+		"default": {Weather: map[WeatherType]float64{"clear": 1}},
+	}
+	cfg := DefaultConfig()
+	for i := 0; i < 50; i++ {
+		rng := NewRNG(uint64(i) + 1)
+		f := []Front{{Id: 1, Type: "storm", Zone: "S", Intensity: 0.8, MaxAge: 24}}
+		f = moveFronts(f, g, climate, cfg, rng)
+		f = evolveTypes(f, g, climate, rng)
+		if f[0].Zone != "S" {
+			t.Fatalf("resistance 1.0 should always linger; moved to %s (seed %d)", f[0].Zone, i)
+		}
+		if f[0].Type != "storm" {
+			t.Fatalf("lingering front must keep its type, got %q (seed %d)", f[0].Type, i)
+		}
+	}
+}
+
+func TestMoveFronts_NoBacktrackToLastZone(t *testing.T) {
+	// 3-zone chain A-B-C, zero resistance (always moves). A front at B that came
+	// from A (History ["A"]) must move to C, never back to A.
+	g := &Graph{
+		Nodes: map[string]ZoneNode{"A": {Zone: "A", Biome: "flat"}, "B": {Zone: "B", Biome: "flat"}, "C": {Zone: "C", Biome: "flat"}},
+		Edges: []Edge{{A: "A", B: "B", Weight: 1}, {A: "B", B: "C", Weight: 1}},
+	}
+	climate := Climate{
+		"flat":    {Weather: map[WeatherType]float64{"clear": 1}, Influence: WeatherInfluence{MovementResistance: 0}, SpawnWeight: 1},
+		"default": {Weather: map[WeatherType]float64{"clear": 1}},
+	}
+	cfg := DefaultConfig()
+	for i := 0; i < 50; i++ {
+		rng := NewRNG(uint64(i) + 1)
+		f := []Front{{Id: 1, Type: "storm", Zone: "B", Intensity: 0.8, MaxAge: 24, History: []ZoneId{"A"}}}
+		f = moveFronts(f, g, climate, cfg, rng)
+		if f[0].Zone == "A" {
+			t.Fatalf("front should not backtrack to A (its last zone); seed %d", i)
+		}
+	}
+}
+
 func TestSpawnFronts_RespectsBudget(t *testing.T) {
 	g := twoZoneGraph()
 	climate := DefaultClimate()

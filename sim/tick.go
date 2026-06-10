@@ -175,7 +175,10 @@ func moveFronts(fronts []Front, g *Graph, climate Climate, cfg Config, rng *RNG)
 		f := &fronts[i]
 		resistance := climate.For(g.Nodes[f.Zone].Biome).Influence.MovementResistance
 		if rng.Float64() < resistance {
-			continue // lingers
+			// Record the linger so evolveTypes can tell this front did not move
+			// this tick: its current zone becomes the newest History entry.
+			f.History = appendBounded(f.History, f.Zone, cfg.HistoryLen)
+			continue
 		}
 		neighbors := g.Neighbors(f.Zone)
 		if len(neighbors) == 0 {
