@@ -81,6 +81,7 @@ func (m *weatherModule) loadSeasons() {
 	// Baseline resolution: establishes zoneSeasons WITHOUT emitting events,
 	// so reboots never replay a flood of season changes.
 	m.zoneSeasons = seasons.ZoneSeasons(m.graph, m.climate, m.tracks, engine.CalendarNow())
+	engine.ReconcileSeasons(m.graph, m.zoneSeasons) // assert season mutators at boot
 	mudlog.Info("Weather: seasons active", "tracks", len(tracks),
 		"seasonalZones", len(m.zoneSeasons))
 }
@@ -140,6 +141,7 @@ func (m *weatherModule) resolveSeasons() {
 		}
 	}
 	m.zoneSeasons = zs
+	engine.ReconcileSeasons(m.graph, zs)
 }
 
 // persistState writes the current state to plugin storage (cheap: a few KB

@@ -132,6 +132,10 @@ func (m *weatherModule) rebuildGraph() {
 	m.startSim(util.GetRoundCount())
 	if m.simReady {
 		engine.Reconcile(m.state.Weather)
+		if m.seasonsOn {
+			m.zoneSeasons = seasons.ZoneSeasons(m.graph, m.climate, m.tracks, engine.CalendarNow())
+			engine.ReconcileSeasons(m.graph, m.zoneSeasons)
+		}
 	}
 }
 
