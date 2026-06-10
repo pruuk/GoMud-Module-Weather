@@ -11,7 +11,10 @@ All fields of `weatherModule` are touched only from the single game-loop
 goroutine — no synchronization needed.
 
 ## Key Components
-- **weather.go**: `weatherModule` struct (plug, cfg, graph, started, simReady,
+- **weather.go**: the `files` embed.FS (`//go:embed files/*` — the config
+  overlay plus `datafiles/` mutator specs and emote tables; the engine loads
+  `mutators/*` from it via the plugin registry, `content` loaders read the
+  rest). `weatherModule` struct (plug, cfg, graph, started, simReady,
   simCfg, climate, tables, state, nextTick, nextEmote). `init()` → `plugins.New`
   + `AttachFileSystem` + `SetOnLoad`, then registers the `weather` command as a
   **player** command (not admin-only; admin subcommands are gated in-handler) and

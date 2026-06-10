@@ -43,7 +43,23 @@ type WorldReader interface {
 ## Options
 - `IncludeSecretExits bool`, `ExcludeZonePatterns []string`,
   `BuiltAtRound uint64`. `DefaultOptions()` enables secret exits and excludes
-  `instance_*` / `ephemeral_*`.
+  `instance_*` / `ephemeral_*`. `IncludeSecretExits` is wired to module config;
+  `ExcludeZonePatterns` is not yet a config key (M4 follow-up) — consumers get
+  the defaults.
+
+## Graph semantics consumers should know
+- **Edge weight counts *directed* exits, not connections.** Every room-exit
+  crossing a zone border adds 1, so a normal two-way border reads `weight: 2`
+  (one exit each way). Treat weight as a "border width" proxy; halve it for a
+  connection count.
+- **Room→zone resolution assumes zones don't share room ids.** Each room id
+  maps to one zone; if an id were reported under two zones, the mapping (and a
+  few edges) could vary between runs. Real worlds don't do this —
+  `WorldReader.RoomIDs` returns disjoint sets per zone — noted only for
+  `WorldReader` adapter authors.
+- **Exits are the only connectivity source.** Zones reachable solely by
+  teleport or scripted movement get no edges; they form separate components
+  with independent weather.
 
 ## Dependencies
 - `github.com/GoMudEngine/GoMud/modules/weather/sim` (the `Graph` types).
@@ -54,8 +70,10 @@ type WorldReader interface {
   `fakeReader`: adjacency, weights, secret-exit option, zone exclusion, node
   metadata, components, and an end-to-end cache round-trip.
 
-## Status
-M1b is complete: the live `engine.WorldReader` (over `internal/rooms`), the
-`weather graph` / `weather rebuild` admin commands, and cache persistence are
-implemented (see the `engine` and root `weather` packages). Future milestones
-(M2+) add the weather simulation that consumes this graph.
+## Consumers
+- The module root calls `Build` (via `engine.NewWorldReader()`) on the first
+  round after boot and from `weather rebuild`; the result is cached through
+  `plugin.WriteBytes` and feeds the entire weather simulation (`sim.Step`,
+  coverage queries, zone resolution). The crawler itself is milestone-complete;
+  changes here are only needed if graph semantics change (e.g. future
+  directional edge metadata for prevailing wind).
