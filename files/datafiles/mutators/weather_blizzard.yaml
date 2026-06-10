@@ -8,6 +8,7 @@ descriptionmodifier:
   text: A howling blizzard whites out the world; the cold bites to the bone.
   colorpattern: frost
 alertmodifier:
+  behavior: append # engine alerts are append-only; explicit for future-proofing
   text: A blizzard rages here!
   colorpattern: frost
 lightmod: -1

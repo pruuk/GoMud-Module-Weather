@@ -8,6 +8,7 @@ descriptionmodifier:
   text: Rain lashes down in sheets and thunder rolls across the sky.
   colorpattern: mute-dblue
 alertmodifier:
+  behavior: append # engine alerts are append-only; explicit for future-proofing
   text: A storm rages overhead.
   colorpattern: mute-dblue
 lightmod: -1
