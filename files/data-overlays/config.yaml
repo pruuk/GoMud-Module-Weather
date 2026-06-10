@@ -5,7 +5,7 @@ IncludeSecretExits: true   # count secret/hidden exits as zone adjacency
 RebuildGraphOnBoot: false  # false = use the cached graph if present
 Seed: 0                    # 0 = derive a stable seed from the world's zone names
 TickEveryGameHours: 1      # weather-simulation cadence (game hours)
-MaxActiveFronts: 8         # global front budget
+MaxActiveFronts: 8         # global front budget (minimum 1; set SpawnRateScale: 0 to stop new fronts)
 SpawnRateScale: 1.0        # multiplier on spawn pressure (0 disables new fronts)
 EmoteMode: module          # module = we emit ambiance | tag-only = your scripts react to mutator tags
 EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)

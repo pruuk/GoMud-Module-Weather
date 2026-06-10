@@ -36,6 +36,9 @@ func TestBuildConfigDefaults(t *testing.T) {
 	if !cfg.BuffsEnabled || !cfg.Persist || cfg.Seed != 0 {
 		t.Errorf("buff/persist/seed defaults wrong: %+v", cfg)
 	}
+	if !cfg.IncludeSecretExits {
+		t.Error("IncludeSecretExits must default true")
+	}
 }
 
 func TestBuildConfigCoercionAndClamps(t *testing.T) {
@@ -84,5 +87,24 @@ func TestSimConfig(t *testing.T) {
 	}
 	if sc.SpawnChance != 0 {
 		t.Errorf("scale 0 should zero the spawn chance: %v", sc.SpawnChance)
+	}
+
+	cfg.MaxActiveFronts = 0 // bypasses buildConfig's clamp; simConfig must still pass it through
+	cfg.SpawnRateScale = 10
+	sc = cfg.simConfig()
+	if sc.SpawnChance != 1 {
+		t.Errorf("spawn chance must cap at 1: %v", sc.SpawnChance)
+	}
+}
+
+func TestBuildConfigClampsFrontBudgetAndSeed(t *testing.T) {
+	cfg := buildConfig(func(k string) any {
+		return map[string]any{"MaxActiveFronts": 0, "Seed": -1}[k]
+	})
+	if cfg.MaxActiveFronts != 1 {
+		t.Errorf("MaxActiveFronts 0 must clamp to 1: %d", cfg.MaxActiveFronts)
+	}
+	if cfg.Seed != 0 {
+		t.Errorf("negative Seed must clamp to 0 (derive-from-world): %d", cfg.Seed)
 	}
 }

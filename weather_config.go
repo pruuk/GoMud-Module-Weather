@@ -25,7 +25,7 @@ type Config struct {
 
 	Seed               uint64  // 0 = derive a stable seed from the world's zone names
 	TickEveryGameHours int     // weather-simulation cadence in game hours (>= 1)
-	MaxActiveFronts    int     // global front budget
+	MaxActiveFronts    int     // global front budget (>= 1)
 	SpawnRateScale     float64 // multiplier on the default spawn chance
 	EmoteMode          string  // EmoteModeModule | EmoteModeTagOnly
 	EmoteEveryRounds   int     // ambient emote cadence in rounds (jittered ±25%, >= 5)
@@ -87,12 +87,17 @@ func stringOr(v any, def string) string {
 // buildConfig resolves config from a getter, applying defaults and sanity
 // clamps so a partial or hand-mangled overlay still yields a usable module.
 func buildConfig(get getter) Config {
+	seed := intOr(get("Seed"), 0)
+	if seed < 0 {
+		seed = 0 // negative would wrap via uint64(); treat as "derive from world"
+	}
+
 	c := Config{
 		Enabled:            asBool(get("Enabled")),
 		IncludeSecretExits: boolOr(get("IncludeSecretExits"), true),
 		RebuildGraphOnBoot: asBool(get("RebuildGraphOnBoot")),
 
-		Seed:               uint64(intOr(get("Seed"), 0)),
+		Seed:               uint64(seed),
 		TickEveryGameHours: intOr(get("TickEveryGameHours"), 1),
 		MaxActiveFronts:    intOr(get("MaxActiveFronts"), 8),
 		SpawnRateScale:     floatOr(get("SpawnRateScale"), 1.0),
@@ -103,6 +108,9 @@ func buildConfig(get getter) Config {
 	}
 	if c.TickEveryGameHours < 1 {
 		c.TickEveryGameHours = 1
+	}
+	if c.MaxActiveFronts < 1 {
+		c.MaxActiveFronts = 1
 	}
 	if c.EmoteEveryRounds < 5 {
 		c.EmoteEveryRounds = 5
@@ -119,9 +127,7 @@ func buildConfig(get getter) Config {
 // simConfig maps module config onto the simulation's tuning knobs.
 func (c Config) simConfig() sim.Config {
 	sc := sim.DefaultConfig()
-	if c.MaxActiveFronts > 0 {
-		sc.MaxActiveFronts = c.MaxActiveFronts
-	}
+	sc.MaxActiveFronts = c.MaxActiveFronts
 	sc.SpawnChance *= c.SpawnRateScale
 	if sc.SpawnChance > 1 {
 		sc.SpawnChance = 1
