@@ -34,6 +34,33 @@ func TestDefaultClimateTrackBindings(t *testing.T) {
 	}
 }
 
+func TestDefaultClimateCoversStockBiomes(t *testing.T) {
+	c := DefaultClimate()
+	// The stock GoMud world's outdoor biome ids (S1 smoke finding: these
+	// previously fell through to the bland "default" profile).
+	stock := []string{"mountains", "cliffs", "snow", "shore", "water",
+		"farmland", "land", "road", "city", "fort", "slums"}
+	for _, b := range stock {
+		p, ok := c[b]
+		if !ok {
+			t.Errorf("stock biome %q has no climate profile", b)
+			continue
+		}
+		if len(p.Weather) == 0 {
+			t.Errorf("stock biome %q has empty weather table", b)
+		}
+		if p.Track != "temperate" {
+			t.Errorf("stock biome %q should bind to temperate, got %q", b, p.Track)
+		}
+	}
+	// Indoor-ish stock ids deliberately stay unbound/absent (default profile).
+	for _, b := range []string{"cave", "dungeon", "house", "spiderweb"} {
+		if _, ok := c[b]; ok {
+			t.Errorf("indoor biome %q should not have a profile", b)
+		}
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.MaxActiveFronts <= 0 {
