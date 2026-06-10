@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // twoZoneGraph: A(plains) <-> B(mountain), one edge weight 1.
 func twoZoneGraph() *Graph {
@@ -310,20 +313,10 @@ func runTicks(seed uint64, n int) State {
 func TestStep_Deterministic(t *testing.T) {
 	a := runTicks(12345, 40)
 	b := runTicks(12345, 40)
-	// Same seed + world + tick count => identical resolved weather and RNG cursor.
-	if a.RNGState != b.RNGState {
-		t.Fatal("RNG cursor diverged across identical runs")
-	}
-	if len(a.Weather) != len(b.Weather) {
-		t.Fatalf("weather map sizes differ: %d vs %d", len(a.Weather), len(b.Weather))
-	}
-	for z, w := range a.Weather {
-		if b.Weather[z] != w {
-			t.Errorf("zone %q weather diverged: %q vs %q", z, w, b.Weather[z])
-		}
-	}
-	if len(a.Fronts) != len(b.Fronts) {
-		t.Errorf("front counts diverged: %d vs %d", len(a.Fronts), len(b.Fronts))
+	// Same seed + world + tick count => byte-for-byte identical State
+	// (fronts incl. History, weather, RNG cursor, NextID, Round).
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("identical runs diverged:\n a=%+v\n b=%+v", a, b)
 	}
 }
 
