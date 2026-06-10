@@ -49,7 +49,7 @@ type Tables map[sim.WeatherType]Table
   overlaid with every `*.yaml` under `dir`.
 - `ParseEmoteTable([]byte) (Table, error)` — parse one emote table YAML.
 - `LoadEmotes(fs.FS, dir string) (Tables, error)` — all emote tables under `dir`.
-- `(Tables).Pick(weather WeatherType, biome string, indoor bool, roll func(int) int) string`
+- `(Tables).Pick(weather sim.WeatherType, biome string, indoor bool, roll func(int) int) string`
   — select one ambient line. `roll(n)` must return `[0,n)`; pass the engine's
   `util.Rand` (or a stub in tests) — NEVER the sim RNG, which must stay isolated
   from presentation randomness.

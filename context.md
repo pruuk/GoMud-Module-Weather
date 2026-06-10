@@ -26,7 +26,7 @@ goroutine — no synchronization needed.
   `engine.DecodeState`, or `sim.NewState`/`sim.DeriveSeed` on a fresh start).
   `tick` (Step → `engine.Reconcile`; Reconcile rather than bare Apply so
   engine-side `decayrate` drift self-corrects within one tick). `persistState`
-  (cheap; called per-tick and from onSave). `onSave` (plugins.Save hook).
+  (cheap; called per-tick, from onSave, and from every command/export mutation path). `onSave` (plugins.Save hook).
   `scheduleEmote` (±25% jitter so ambience doesn't metronome).
 - **weather_commands.go**: bare `weather` shows local conditions (player view;
   includes the dominant front via `sim.Covering`). Subcommands `zones`, `fronts`,
