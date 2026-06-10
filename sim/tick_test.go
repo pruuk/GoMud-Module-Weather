@@ -115,3 +115,59 @@ func TestStep_DeterministicAndCoversAllZones(t *testing.T) {
 		}
 	}
 }
+
+func TestMoveFronts_HighResistanceZoneLingers(t *testing.T) {
+	// Mountain (resistance 0.5) vs plains (0.05). Run many independent single
+	// fronts one tick each; the mountain front should move far less often.
+	g := twoZoneGraph()
+	climate := DefaultClimate()
+	cfg := DefaultConfig()
+
+	movesFrom := func(zone ZoneId, seed uint64) int {
+		moved := 0
+		for i := 0; i < 200; i++ {
+			rng := NewRNG(seed + uint64(i))
+			f := []Front{{Id: 1, Type: "storm", Zone: zone, Intensity: 0.8, Moisture: 0.5, MaxAge: 24}}
+			out := moveFronts(f, g, climate, cfg, rng)
+			if out[0].Zone != zone {
+				moved++
+			}
+		}
+		return moved
+	}
+	mountainMoves := movesFrom("B", 1000)
+	plainsMoves := movesFrom("A", 1000)
+	if !(plainsMoves > mountainMoves) {
+		t.Errorf("plains front should move more often than mountain front; plains=%d mountain=%d",
+			plainsMoves, mountainMoves)
+	}
+}
+
+func TestMoveFronts_RecordsHistoryOnMove(t *testing.T) {
+	// A 3-zone line A-B-C; a front in B that moves should append its old zone to
+	// History. Force movement by using zero resistance everywhere via a custom climate.
+	g := &Graph{
+		Nodes: map[string]ZoneNode{
+			"A": {Zone: "A", Biome: "flat"}, "B": {Zone: "B", Biome: "flat"}, "C": {Zone: "C", Biome: "flat"},
+		},
+		Edges: []Edge{{A: "A", B: "B", Weight: 1}, {A: "B", B: "C", Weight: 1}},
+	}
+	climate := Climate{"flat": {Weather: map[WeatherType]float64{"clear": 1}, Influence: WeatherInfluence{MovementResistance: 0}, SpawnWeight: 1}, "default": {Weather: map[WeatherType]float64{"clear": 1}}}
+	cfg := DefaultConfig()
+
+	movedSomewhere := false
+	for i := 0; i < 50; i++ {
+		rng := NewRNG(uint64(i) + 1)
+		f := []Front{{Id: 1, Type: "storm", Zone: "B", Intensity: 0.8, MaxAge: 24}}
+		out := moveFronts(f, g, climate, cfg, rng)
+		if out[0].Zone != "B" {
+			movedSomewhere = true
+			if len(out[0].History) == 0 || out[0].History[len(out[0].History)-1] != "B" {
+				t.Fatalf("on move, History should end with the departed zone 'B'; got %v", out[0].History)
+			}
+		}
+	}
+	if !movedSomewhere {
+		t.Fatal("with zero resistance, the front should sometimes move")
+	}
+}

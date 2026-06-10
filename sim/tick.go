@@ -165,11 +165,88 @@ func diffWeather(prev, next map[ZoneId]WeatherType) StateDiff {
 	return StateDiff{Changes: changes}
 }
 
-// --- stubs replaced in later tasks ---
-
+// moveFronts may advance each front to an adjacent zone. The chance to move is
+// (1 - currentResistance); the destination is chosen weighted by edge weight,
+// excluding the most recent zone in History (no immediate backtrack) when an
+// alternative exists. On a move, the departed zone is appended to History
+// (bounded by cfg.HistoryLen).
 func moveFronts(fronts []Front, g *Graph, climate Climate, cfg Config, rng *RNG) []Front {
+	for i := range fronts {
+		f := &fronts[i]
+		resistance := climate.For(g.Nodes[f.Zone].Biome).Influence.MovementResistance
+		if rng.Float64() < resistance {
+			continue // lingers
+		}
+		neighbors := g.Neighbors(f.Zone)
+		if len(neighbors) == 0 {
+			continue
+		}
+		dest := pickNeighbor(neighbors, lastZone(f.History), rng)
+		if dest == "" || dest == f.Zone {
+			continue
+		}
+		f.History = appendBounded(f.History, f.Zone, cfg.HistoryLen)
+		f.Zone = dest
+	}
 	return fronts
 }
+
+// pickNeighbor selects a destination weighted by edge weight, excluding `avoid`
+// (the last zone) unless it is the only option.
+func pickNeighbor(neighbors []Edge, avoid ZoneId, rng *RNG) ZoneId {
+	candidates := neighbors
+	if avoid != "" {
+		filtered := make([]Edge, 0, len(neighbors))
+		for _, e := range neighbors {
+			if e.B != avoid {
+				filtered = append(filtered, e)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
+	}
+	total := 0
+	for _, e := range candidates {
+		w := e.Weight
+		if w < 1 {
+			w = 1
+		}
+		total += w
+	}
+	if total <= 0 {
+		return ""
+	}
+	r := rng.Intn(total)
+	for _, e := range candidates {
+		w := e.Weight
+		if w < 1 {
+			w = 1
+		}
+		if r < w {
+			return e.B
+		}
+		r -= w
+	}
+	return candidates[len(candidates)-1].B
+}
+
+func lastZone(history []ZoneId) ZoneId {
+	if len(history) == 0 {
+		return ""
+	}
+	return history[len(history)-1]
+}
+
+func appendBounded(history []ZoneId, z ZoneId, max int) []ZoneId {
+	history = append(history, z)
+	if max > 0 && len(history) > max {
+		history = history[len(history)-max:]
+	}
+	return history
+}
+
+// --- stubs replaced in later tasks ---
 
 func evolveTypes(fronts []Front, g *Graph, climate Climate, rng *RNG) []Front {
 	return fronts
