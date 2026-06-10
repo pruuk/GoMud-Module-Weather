@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/GoMudEngine/GoMud/internal/events"
+	"github.com/GoMudEngine/GoMud/modules/weather/engine"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
@@ -113,23 +115,147 @@ func (m *weatherModule) buildSnapshot() *AdminSnapshot {
 	return s
 }
 
+// configKeyApplier is the single source of truth for what saving each key does.
+// Badge text is shown on the page (via configRows); LiveApply (nil = nothing
+// to do immediately) runs on the game loop after the new config is adopted.
+type configKeyApplier struct {
+	Badge     string
+	LiveApply func(m *weatherModule, old Config)
+}
+
+// configKeyMeta maps each public config key to its apply semantics and badge.
+var configKeyMeta = map[string]configKeyApplier{
+	"Enabled":            {Badge: "takes effect on reboot"},
+	"IncludeSecretExits": {Badge: "applies on next graph rebuild"},
+	"RebuildGraphOnBoot": {Badge: "boot flag"},
+	"Seed":               {Badge: "applies when state is re-seeded"},
+	"TickEveryGameHours": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+		m.simCfg = m.cfg.simConfig()
+		m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
+	}},
+	"MaxActiveFronts": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+		m.simCfg = m.cfg.simConfig()
+	}},
+	"SpawnRateScale": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+		m.simCfg = m.cfg.simConfig()
+	}},
+	"EmoteMode": {Badge: "live"},
+	"EmoteEveryRounds": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+		m.scheduleEmote(engine.CurrentRound())
+	}},
+	"BuffsEnabled": {Badge: "live to disable; reboot to re-enable", LiveApply: func(m *weatherModule, old Config) {
+		if old.BuffsEnabled && !m.cfg.BuffsEnabled {
+			engine.StripBuffs()
+		}
+		// false->true has no live path (no restore) — badge says reboot.
+	}},
+	"Persist": {Badge: "live"},
+	"SeasonsEnabled": {Badge: "live", LiveApply: func(m *weatherModule, old Config) {
+		switch {
+		case old.SeasonsEnabled && !m.cfg.SeasonsEnabled:
+			m.seasonsOn = false
+			m.zoneSeasons = nil
+			engine.ReconcileSeasons(m.graph, nil) // strip season mutators now
+		case !old.SeasonsEnabled && m.cfg.SeasonsEnabled:
+			m.loadSeasons() // idempotent; baseline without events
+		}
+	}},
+}
+
 // configRows serializes the config view for the snapshot. Badges come from
-// the apply table (Task 3); every public key must appear.
+// configKeyMeta — single source of truth; every public key must appear.
 func (m *weatherModule) configRows() []AdminConfigRow {
 	c := m.cfg
-	rows := []AdminConfigRow{
-		{"Enabled", c.Enabled, "takes effect on reboot"},
-		{"IncludeSecretExits", c.IncludeSecretExits, "applies on next graph rebuild"},
-		{"RebuildGraphOnBoot", c.RebuildGraphOnBoot, "boot flag"},
-		{"Seed", c.Seed, "applies when state is re-seeded"},
-		{"TickEveryGameHours", c.TickEveryGameHours, "live"},
-		{"MaxActiveFronts", c.MaxActiveFronts, "live"},
-		{"SpawnRateScale", c.SpawnRateScale, "live"},
-		{"EmoteMode", c.EmoteMode, "live"},
-		{"EmoteEveryRounds", c.EmoteEveryRounds, "live"},
-		{"BuffsEnabled", c.BuffsEnabled, "live to disable; reboot to re-enable"},
-		{"Persist", c.Persist, "live"},
-		{"SeasonsEnabled", c.SeasonsEnabled, "live"},
+	values := map[string]any{
+		"Enabled": c.Enabled, "IncludeSecretExits": c.IncludeSecretExits,
+		"RebuildGraphOnBoot": c.RebuildGraphOnBoot, "Seed": c.Seed,
+		"TickEveryGameHours": c.TickEveryGameHours, "MaxActiveFronts": c.MaxActiveFronts,
+		"SpawnRateScale": c.SpawnRateScale, "EmoteMode": c.EmoteMode,
+		"EmoteEveryRounds": c.EmoteEveryRounds, "BuffsEnabled": c.BuffsEnabled,
+		"Persist": c.Persist, "SeasonsEnabled": c.SeasonsEnabled,
 	}
+	rows := make([]AdminConfigRow, 0, len(values))
+	for key, val := range values {
+		rows = append(rows, AdminConfigRow{Key: key, Value: val, Badge: configKeyMeta[key].Badge})
+	}
+	sort.Slice(rows, func(a, b int) bool { return rows[a].Key < rows[b].Key })
 	return rows
+}
+
+// applyConfigChange adopts a freshly re-read config and runs the changed
+// key's live applier. Game loop only. Refreshes the snapshot.
+func (m *weatherModule) applyConfigChange(newCfg Config, key string) {
+	old := m.cfg
+	m.cfg = newCfg
+	if meta, ok := configKeyMeta[key]; ok && meta.LiveApply != nil && m.simReady {
+		meta.LiveApply(m, old)
+	}
+	m.lastAdminAction = "config " + key + " saved"
+	m.publishSnapshot()
+}
+
+// applyAdminAction executes a web-initiated action on the game loop through
+// the same paths as the in-game commands. Refreshes the snapshot.
+func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
+	if !m.simReady && a.Action != "rebuild" {
+		m.lastAdminAction = a.Action + ": simulation not running"
+		m.publishSnapshot()
+		return
+	}
+	switch a.Action {
+	case "spawn":
+		zone, ok := m.graph.FindZone(a.Zone)
+		if !ok {
+			m.lastAdminAction = "spawn: unknown zone " + a.Zone
+			break
+		}
+		next, _, ok := sim.ForceSpawn(m.state, m.graph, m.simCfg, sim.WeatherType(a.Weather), zone, a.Intensity, sim.Clock{Round: engine.CurrentRound()})
+		if !ok {
+			m.lastAdminAction = "spawn failed"
+			break
+		}
+		m.state = next
+		engine.Reconcile(m.state.Weather)
+		m.persistState()
+		m.lastAdminAction = "spawned " + a.Weather + " @ " + zone
+	case "clear":
+		var zones []sim.ZoneId
+		label := "everywhere"
+		if a.Zone != "" {
+			zone, ok := m.graph.FindZone(a.Zone)
+			if !ok {
+				m.lastAdminAction = "clear: unknown zone " + a.Zone
+				break
+			}
+			zones = []sim.ZoneId{zone}
+			label = zone
+		}
+		next, _ := sim.ClearZones(m.state, m.graph, m.simCfg, zones, sim.Clock{Round: engine.CurrentRound()})
+		m.state = next
+		engine.Reconcile(m.state.Weather)
+		m.persistState()
+		m.lastAdminAction = "cleared " + label
+	case "rebuild":
+		m.rebuildGraph()
+		m.lastAdminAction = "graph rebuilt"
+	default:
+		m.lastAdminAction = "unknown action " + a.Action
+	}
+	m.publishSnapshot()
+}
+
+// onAdminAction / onConfigChanged run on the game loop (MainWorker) — the
+// write-side bridges from the admin web API.
+func (m *weatherModule) onAdminAction(e events.Event) events.ListenerReturn {
+	if a, ok := e.(WeatherAdminAction); ok {
+		m.applyAdminAction(a)
+	}
+	return events.Continue
+}
+
+func (m *weatherModule) onConfigChanged(e events.Event) events.ListenerReturn {
+	if c, ok := e.(WeatherConfigChanged); ok {
+		m.applyConfigChange(loadConfig(m.plug), c.Key)
+	}
+	return events.Continue
 }

@@ -69,6 +69,8 @@ func (m *weatherModule) onLoad() {
 	}
 	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
+	events.RegisterListener(WeatherAdminAction{}, m.onAdminAction)
+	events.RegisterListener(WeatherConfigChanged{}, m.onConfigChanged)
 }
 
 // onNewRound drives everything round-based: one-time startup, the jittered

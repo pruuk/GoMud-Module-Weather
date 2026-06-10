@@ -104,3 +104,54 @@ func configKeysOf(s *AdminSnapshot) []string {
 	}
 	return out
 }
+
+func TestConfigKeyMetaCoversAllKeys(t *testing.T) {
+	m := adminTestModule()
+	for _, row := range m.configRows() {
+		meta, ok := configKeyMeta[row.Key]
+		if !ok {
+			t.Errorf("no meta for %s", row.Key)
+			continue
+		}
+		if meta.Badge != row.Badge {
+			t.Errorf("%s: row badge %q != meta badge %q", row.Key, row.Badge, meta.Badge)
+		}
+	}
+	if len(configKeyMeta) != 12 {
+		t.Errorf("expected 12 config keys, got %d", len(configKeyMeta))
+	}
+}
+
+func TestApplyConfigChangeLiveKeys(t *testing.T) {
+	m := adminTestModule()
+	// Simulate a persisted change: cfg re-read happens via loadConfig in the
+	// real path; here we hand applyConfigChange the new config directly.
+	newCfg := m.cfg
+	newCfg.SpawnRateScale = 0 // stops new fronts
+	newCfg.TickEveryGameHours = 6
+	m.applyConfigChange(newCfg, "SpawnRateScale")
+	if m.cfg.SpawnRateScale != 0 {
+		t.Error("cfg not adopted")
+	}
+	if m.simCfg.SpawnChance != 0 {
+		t.Error("simCfg not re-derived for live key")
+	}
+}
+
+func TestApplyConfigChangeSeasonsToggle(t *testing.T) {
+	// applyConfigChange's season-disable path calls engine.ReconcileSeasons
+	// which iterates g.Zones() and calls rooms.GetZoneConfig for each — in this
+	// unit test the graph zones ("Frost", "Dune") don't exist in the live room
+	// registry, so GetZoneConfig returns nil and the call is a no-op loop.
+	// The test therefore validates field mutations without a booted world.
+	m := adminTestModule()
+	newCfg := m.cfg
+	newCfg.SeasonsEnabled = false
+	m.applyConfigChange(newCfg, "SeasonsEnabled")
+	if m.seasonsOn {
+		t.Error("seasons should turn off live")
+	}
+	if len(m.zoneSeasons) != 0 {
+		t.Error("zone seasons should clear on live disable")
+	}
+}
