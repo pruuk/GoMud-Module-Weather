@@ -29,6 +29,7 @@ The executor should trust these — they were re-verified against upstream sourc
 11. **Exports:** `plugin.ExportFunction(stringId, fn)` (precedent: `modules/gmcp/gmcp.go:59`).
 12. **Color patterns** are world data (`_datafiles/world/default/color-patterns.yaml`). Valid names used in this plan: `gray`, `blue`, `mute-dblue`, `frost`, `brown`, `embers`. (There is no `storm` pattern — the spec's §9.1 example was illustrative.)
 13. **Module registration in the checkout** already exists from M1b: `modules/all-modules.go` imports `modules/weather`, and `scripts/sync-to-checkout.ps1` mirrors this repo into `~/workspace/GoMud/modules/weather` (excluding `go.mod`/`go.sum`).
+14. **`plugins.Load()` harvests a plugin's `userCommands` into the engine registry BEFORE invoking its `onLoad` callback** (plugins.go ~501 vs ~555) — commands and exports MUST be registered in `init()`, not `onLoad` (found by the M3 boot smoke test; the spec's §5.1 'AddUserCommand' guidance predates this).
 
 ## Design decisions (read before starting)
 
@@ -2278,7 +2279,7 @@ git commit -m "feat(config): full M3 config surface with coercion, defaults and 
 
 - [ ] **Step 1: Extend `weatherModule` and `onLoad`/`onNewRound` in `weather.go`**
 
-Replace the struct and the two functions (leave `init`, `loadOrBuildGraph`, `rebuildGraph`, `sendLine` as they are for now — `rebuildGraph` gains one line):
+Replace the struct and the two functions (`init` also gains the command + export registration — see below; leave `loadOrBuildGraph`, `rebuildGraph`, `sendLine` as they are for now — `rebuildGraph` gains one line):
 
 ```go
 // weatherModule holds the plugin handle, resolved config, the geography graph,
@@ -2300,17 +2301,30 @@ type weatherModule struct {
 }
 ```
 
+The `weather` command and the exports MUST be registered in `init()`, NOT in
+`onLoad`: `plugins.Load()` harvests the plugin's `userCommands` map into the
+engine registry BEFORE invoking `onLoad`, so anything registered in `onLoad` is
+silently lost (see Verified engine fact 14). Add to the existing `init()`, right
+after the `SetOnLoad` line:
+
 ```go
-// onLoad loads config and registers the command, exports, and listeners. World
-// crawling and sim startup are deferred to the first NewRound (engine-specific
-// onLoad timing vs world load).
+	// Command and exports are registered at init: plugins.Load() harvests the
+	// command map BEFORE invoking onLoad, so anything registered there is lost.
+	// Behavior (not registration) is gated on cfg.Enabled / simReady.
+	module.plug.AddUserCommand(`weather`, module.cmdWeather, false, false)
+	module.registerExports()
+```
+
+```go
+// onLoad loads config and registers the save hook + NewRound listener. The
+// command and exports are registered in init() (plugins.Load harvests the
+// command map before onLoad). World crawling and sim startup are deferred to
+// the first NewRound (engine-specific onLoad timing vs world load).
 func (m *weatherModule) onLoad() {
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
 		return
 	}
-	m.plug.AddUserCommand(`weather`, m.cmdWeather, false, false) // player command; admin subcommands gated in-handler
-	m.registerExports()
 	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
 }
@@ -2522,6 +2536,11 @@ const adminUsage = "Weather admin subcommands: zones | fronts | spawn <type> <zo
 // any player; everything else is admin/mod gated (HasRolePermission: admins
 // always pass, mods need the granted "weather" permission key).
 func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *rooms.Room, flags events.EventFlag) (bool, error) {
+	if !m.cfg.Enabled {
+		m.printLocalWeather(user, room) // module disabled: handler exists but stays inert
+		return true, nil
+	}
+
 	args := strings.Fields(rest)
 	sub := ""
 	if len(args) > 0 {

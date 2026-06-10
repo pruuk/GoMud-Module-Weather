@@ -43,18 +43,22 @@ func init() {
 		panic(err)
 	}
 	module.plug.Callbacks.SetOnLoad(module.onLoad)
+	// Command and exports are registered at init: plugins.Load() harvests the
+	// command map BEFORE invoking onLoad, so anything registered there is lost.
+	// Behavior (not registration) is gated on cfg.Enabled / simReady.
+	module.plug.AddUserCommand(`weather`, module.cmdWeather, false, false)
+	module.registerExports()
 }
 
-// onLoad loads config and registers the command, exports, and listeners. World
-// crawling and sim startup are deferred to the first NewRound (engine-specific
-// onLoad timing vs world load).
+// onLoad loads config and registers the save hook + NewRound listener. The
+// command and exports are registered in init() (plugins.Load harvests the
+// command map before onLoad). World crawling and sim startup are deferred to
+// the first NewRound (engine-specific onLoad timing vs world load).
 func (m *weatherModule) onLoad() {
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
 		return
 	}
-	m.plug.AddUserCommand(`weather`, m.cmdWeather, false, false) // player command; admin subcommands gated in-handler
-	m.registerExports()
 	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
 }

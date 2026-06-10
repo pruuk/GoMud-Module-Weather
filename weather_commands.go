@@ -19,6 +19,11 @@ const adminUsage = "Weather admin subcommands: zones | fronts | spawn <type> <zo
 // any player; everything else is admin/mod gated (HasRolePermission: admins
 // always pass, mods need the granted "weather" permission key).
 func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *rooms.Room, flags events.EventFlag) (bool, error) {
+	if !m.cfg.Enabled {
+		m.printLocalWeather(user, room) // module disabled: handler exists but stays inert
+		return true, nil
+	}
+
 	args := strings.Fields(rest)
 	sub := ""
 	if len(args) > 0 {

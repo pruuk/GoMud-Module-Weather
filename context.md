@@ -13,9 +13,13 @@ goroutine — no synchronization needed.
 ## Key Components
 - **weather.go**: `weatherModule` struct (plug, cfg, graph, started, simReady,
   simCfg, climate, tables, state, nextTick, nextEmote). `init()` → `plugins.New`
-  + `AttachFileSystem` + `SetOnLoad`. `onLoad`: loads config, registers the
-  `weather` command as a **player** command (not admin-only; admin subcommands
-  are gated in-handler), registers exports, `SetOnSave`, and a `NewRound`
+  + `AttachFileSystem` + `SetOnLoad`, then registers the `weather` command as a
+  **player** command (not admin-only; admin subcommands are gated in-handler) and
+  the exports. Command/export registration MUST happen in `init()`, not `onLoad`:
+  `plugins.Load()` harvests the plugin's `userCommands` map into the engine
+  registry BEFORE invoking `onLoad`, so anything registered in `onLoad` is lost.
+  Behavior is gated on `cfg.Enabled`/`simReady` in-handler instead. `onLoad`:
+  loads config, then (when enabled) registers `SetOnSave` and a `NewRound`
   listener. `onNewRound`: one-time startup (loadOrBuildGraph + startSim), the
   jittered ambient-emote pass, and the coarse weather tick. `loadOrBuildGraph`/
   `rebuildGraph`: cache-or-crawl; `rebuildGraph` also calls `startSim` and
