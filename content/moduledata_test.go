@@ -38,6 +38,9 @@ func TestShippedEmoteTables(t *testing.T) {
 		t.Fatal("no emote tables shipped")
 	}
 	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
 		b, err := os.ReadFile(dir + "/" + e.Name())
 		if err != nil {
 			t.Fatal(err)
@@ -55,6 +58,18 @@ func TestShippedEmoteTables(t *testing.T) {
 		}
 		if len(table.Indoor["default"]) == 0 {
 			t.Errorf("%s: needs at least one indoor default line", e.Name())
+		}
+		// Seasonal variant keys must be seasons of a shipped track, and every
+		// variant needs at least one line somewhere.
+		shippedSeasons := map[string]bool{"winter": true, "spring": true, "summer": true,
+			"autumn": true, "wet": true, "dry": true}
+		for season, sec := range table.Seasonal {
+			if !shippedSeasons[season] {
+				t.Errorf("%s: seasonal variant %q is not a season of any shipped track", e.Name(), season)
+			}
+			if len(sec.Outdoor) == 0 && len(sec.Indoor) == 0 {
+				t.Errorf("%s: seasonal variant %q is empty", e.Name(), season)
+			}
 		}
 	}
 }
