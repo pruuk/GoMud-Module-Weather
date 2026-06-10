@@ -16,11 +16,13 @@ Built in the same spirit as the
 [GoMud Module Playtest Harness](https://github.com/GoMudEngine/GoMud-Module-Playtest-Harness):
 engine-native, compiled-in, data-driven, and testable in isolation.
 
-**Status: M3 complete.** Weather works end-to-end on a stock GoMud world:
-install, run, and storms travel, rooms render `(storm-wracked)`, ambient lines
-play indoors and out, and state survives reboots. Remaining before a public
-release: M4 (default content for every stock biome, polish, builder guide) and
-the one-time module-registry listing. The
+**Status: M3 complete; S1+S2 seasonal layer complete.** Weather works
+end-to-end on a stock GoMud world: install, run, and storms travel, rooms
+render `(storm-wracked)`, ambient lines play indoors and out, state survives
+reboots, and seasonal description lines appear in every outdoor zone on the
+stock world. Remaining before a public release: M4 (per-room indoor/biome
+variants, `Buffs.Overrides`, polish, builder guide) and the one-time
+module-registry listing. The
 [design spec](docs/superpowers/specs/2026-06-08-weather-module-design.md)
 remains the source of truth for scope and architecture; dated status notes in
 it record exactly what each milestone shipped.
@@ -54,8 +56,9 @@ it record exactly what each milestone shipped.
 - **Not per-room weather.** Simulation granularity is the zone. Indoor rooms
   are not rained on — they get indoor *presentation* ("rain drums on the roof")
   — but two outdoor rooms in one zone always share weather.
-- **Not seasons.** Seasons are designed-for (the data formats and clock leave
-  seams) but deliberately deferred to v2.
+- **Not per-room seasonal variation.** S1+S2 ship zone-granularity seasons
+  (one season per zone, one `season-*` mutator per zone); biome-variant seasonal
+  mutators and per-zone track overrides are deferred to a later milestone.
 - **Not a wind/pressure/temperature simulation.** No vector fields, no
   thermodynamics. Weather types carry coarse implications (a blizzard is cold)
   through the buffs and prose you configure.
@@ -143,8 +146,9 @@ tagging, no world prep.
 ### What you'll see in the boot log
 
 ```
-mutators.LoadDataFiles()  loadedCount=18        ← stock 10 + our 8 weather specs
+mutators.LoadDataFiles()  loadedCount=24        ← stock 10 + our 8 weather + 6 season specs
 Weather: built geography graph  zones=15 edges=10 components=6
+Weather: seasons active  tracks=2 seasonalZones=N
 Weather: fresh simulation state  seed=17214436859030717895
 ```
 
@@ -191,15 +195,57 @@ mutator (the engine merges zone mutators into every room render), and an
 emote scheduler voices occupied rooms. State is saved through plugin storage
 and reconciled on boot.
 
-### Seasons (v2, S1)
+### Seasons (v2, S1 + S2)
 
-S1 ships one feature: **climate odds shift with the calendar**. Each biome is
-bound to a named season track (YAML file); each tick the simulation receives a
-season-adjusted climate instead of the flat biome defaults. The shipped tracks
-are `temperate` (winter/spring/summer/autumn) and `monsoon` (wet/dry). S2/S3
-will add seasonal mutators and seasonal prose; S1 is climate-only. See the
+**S1** ships one feature: **climate odds shift with the calendar**. Each biome
+is bound to a named season track (YAML file); each tick the simulation receives
+a season-adjusted climate instead of the flat biome defaults. The shipped tracks
+are `temperate` (winter/spring/summer/autumn) and `monsoon` (wet/dry). S3 will
+add seasonal prose; S1+S2 ship the full mechanical layer. See the
 [seasons design spec](docs/superpowers/specs/2026-06-10-seasons-design.md)
 for full architecture.
+
+**S2** adds a **seasonal ambience layer** in an independent `season-*` mutator
+namespace, reconciled alongside the `weather-*` layer at boot, each tick, and
+after every graph rebuild. Each season-bound zone carries exactly one
+`season-<track>-<season>` mutator while that season is active. Six default specs
+ship (`season-temperate-winter/spring/summer/autumn`, `season-monsoon-wet/dry`),
+each appending one description line to every room in the zone:
+
+```
+Winter holds the land; frost rims every edge and breath hangs in the air.
+```
+
+The shipped defaults are **description-only** — no buffs, no exits. This is a
+deliberate scope decision: zone-wide buffs that persist for an entire ~4-real-day
+season are too heavy-handed to ship as defaults (buff 31 deals damage per
+trigger; buff 33 is −20 all stats). Transient weather buffs from M3 remain as
+shipped; season-long buffs wait for `Buffs.Overrides` (M4) so worlds opt in
+deliberately. The `BuffsEnabled: false` config toggle covers both namespaces if
+you want a zero-buff install.
+
+**Builder seam — seasonal exits.** To add a winter-only crossing (a frozen river,
+a snowed-in pass), create a world-specific override of the season spec and add
+an `exits:` block. The field shape matches the engine's standard `MutatorSpec`
+(verified against `pushed_boulder.yaml` and `internal/exit/exit.go`):
+
+```yaml
+# my_world/mutators/season_temperate_winter.yaml  (override of the shipped spec)
+mutatorid: season-temperate-winter
+descriptionmodifier:
+  behavior: append
+  text: Winter holds the land; frost rims every edge and breath hangs in the air.
+  colorpattern: frost
+decayrate: 24 hours
+exits:
+  across the ice:
+    roomid: 123
+```
+
+While `season-temperate-winter` is active on the zone, players see the exit
+`across the ice` leading to room 123; when the season flips, the exit
+disappears. The same `exits:` field works for weather specs if you want a
+storm-only secret passage.
 
 **Making an esoteric season (no Go required).** Two optional per-season YAML
 fields let you introduce weather types that are completely absent from a biome's
@@ -413,12 +459,13 @@ package carries a `context.md` describing its responsibilities in detail.
 
 ## Roadmap
 
+- **S3 — Seasonal prose & content:** seasonal emote tables, optional
+  `seasonal:` weather-variant support, `jungle`/`monsoon` default content,
+  README/builder-guide updates.
 - **M4 — polish & default content:** per-room indoor/biome mutator variants,
   `Buffs.Overrides`, full per-biome emote/climate coverage for every stock
   biome, builder guide, CI.
 - **Registry onboarding** — one-time listing so `module install weather` works.
-- **v2 — seasons:** a season clock modulating climate weights; the data
-  formats already leave the seams.
 
 ## License
 

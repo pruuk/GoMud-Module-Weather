@@ -24,12 +24,15 @@ dependency is `gopkg.in/yaml.v2`, which the GoMud engine itself uses.
 - **moduledata_test.go**: validates the SHIPPED YAML files under
   `files/datafiles/`. For emote tables: parseable, `filename == weather+".yaml"`,
   at least one outdoor-default and one indoor-default line. For mutator specs:
-  parseable, `mutatorid` is `weather-` namespaced, filename matches
+  parseable, `mutatorid` is **`weather-` or `season-`** namespaced (both
+  namespaces validated under the same rules), filename matches
   `fileNameFor(mutatorid)` (mirrors `util.ConvertForFilename`), `respawnrate`
   forbidden (would fight the orchestrator), `decayintoid` forbidden (upstream
   `MutatorList.Remove` resets `SpawnedRound` and runs `Update` whose decay
   branch has no liveness guard — the decay target is instantly resurrected),
-  `decayrate` required (self-heal safety net).
+  `decayrate` required (self-heal safety net). A count assertion requires at
+  least **14** shipped mutator specs (8 weather + 6 season) so a sync/copy
+  mistake is loud.
 - **doc.go**: package-level comment.
 
 ### Key Types

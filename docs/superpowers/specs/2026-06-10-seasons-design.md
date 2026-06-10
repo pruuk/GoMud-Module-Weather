@@ -303,8 +303,14 @@ calendar the tracks don't fit ⇒ log once, run exactly as v1 weather.
   > user command, so the month was cross-checked via the calendar directly. S2
   > (seasonal mechanics) is next.
 - **S2 — Seasonal mechanics:** `ReconcileSeasons` layer, default
-  `season_*` mutator specs (temperate ×4, monsoon ×2) with curated buffs,
-  exits seam + builder docs, shipped-data test extension.
+  `season_*` mutator specs (temperate ×4, monsoon ×2; description-only per
+  scope decision — no default buffs, no default exits; both are documented
+  builder seams), exits seam + builder docs, shipped-data test extension
+  (14-spec count assert, dual-namespace validation). Stock-world biome coverage
+  expanded (`mountains`/`cliffs`/`snow`/`shore`/`water`/`farmland`/`land`/
+  `road`/`city`/`fort`/`slums` → `temperate`) so most outdoor stock zones are
+  seasonal. Lifecycle wired: `ReconcileSeasons` called at boot, per tick, and
+  post-rebuild. Pending smoke render (Task 8).
 - **S3 — Seasonal prose & content:** seasonal emote tables, `seasonal:`
   weather-variant support, default content pass (incl. `jungle`/`monsoon`),
   README/builder-guide updates.
@@ -337,7 +343,7 @@ approval gates.
 | # | Risk / question | Mitigation / answer |
 |---|---|---|
 | S-R1 | Two ambient-emote sources could feel spammy | Seasonal emotes fire at a lower cadence and yield to weather emotes; both ride one scheduler pass |
-| S-R2 | Mutator count per zone grows to 2 (weather + season) | Engine merges zone mutators at render already; verified pattern. Watch render length with both name tags — seasonal specs may omit `namemodifier` if titles get noisy (decide in S2 with real renders) |
+| S-R2 | Mutator count per zone grows to 2 (weather + season) | Engine merges zone mutators at render already; verified pattern. **2026-06-10 (S2):** Seasonal specs ship **without `namemodifier`** — room titles already carry the weather tag and adding a second seasonal tag makes titles noisy. Description lines carry both layers cleanly. Render quality confirmed pending the S2 smoke render (Task 8 finalizes the verdict). |
 | S-R3 | Worlds with non-12-month calendars get no defaults | Deliberate: track files must be authored to the calendar; fail-soft to v1 weather otherwise |
 | S-R4 | Hemisphere support limited to biome-id granularity | Documented; per-zone track override is the designed seam |
 | S-R5 | Blend window vs `TickEveryGameHours` interaction (long ticks may sample a window once or never) | Blend is sampled per tick; with stock settings (24 ticks/day, 6-day window) ≈ 144 samples. Document that very long tick cadences coarsen blending — cosmetic only |

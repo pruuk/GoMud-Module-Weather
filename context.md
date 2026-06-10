@@ -27,8 +27,11 @@ goroutine — no synchronization needed.
   loads config, then (when enabled) registers `SetOnSave` and a `NewRound`
   listener. `onNewRound`: one-time startup (loadOrBuildGraph + startSim), the
   jittered ambient-emote pass, and the coarse weather tick. `loadOrBuildGraph`/
-  `rebuildGraph`: cache-or-crawl; `rebuildGraph` also calls `startSim` and
-  `engine.Reconcile`. `sendLine` is the SOLE `user.SendText` call site.
+  `rebuildGraph`: cache-or-crawl; `rebuildGraph` also calls `startSim`,
+  `engine.Reconcile`, and (when `seasonsOn`) recomputes `m.zoneSeasons` and
+  calls `engine.ReconcileSeasons` (post-rebuild heal — prevents stale-zone
+  seasons surviving a graph rebuild). `sendLine` is the SOLE `user.SendText`
+  call site.
 - **weather_events.go**: exports `WeatherSeasonChanged{Zone, Track, From, To}`
   — queued on the engine event bus when a zone's resolved season flips. Never
   emitted on the first (baseline) resolution after boot, so reboots do not
@@ -41,21 +44,25 @@ goroutine — no synchronization needed.
   ladder: `SeasonsEnabled: false` → skip; no usable calendar → skip; no/invalid
   tracks → skip; each rejection leaves `seasonsOn = false` so weather runs
   exactly as v1. On success sets `m.seasonsOn = true`, stores tracks, and
-  calls `seasons.ZoneSeasons` to establish the **baseline** `zoneSeasons` map
-  (no events are emitted from this baseline — reboots must not replay season
-  changes). `loadOrInitState` (restore from `engine.DecodeState`, or
-  `sim.NewState`/`sim.DeriveSeed` on a fresh start). `tick` — when `seasonsOn`,
-  calls `seasons.EffectiveClimate` to produce the climate input for `sim.Step`
-  (the seasonsOn gate); then Step → `engine.Reconcile` (rather than bare Apply
-  so engine-side `decayrate` drift self-corrects within one tick); then
-  `resolveSeasons` if `seasonsOn`. `resolveSeasons` — re-resolves all zone
-  seasons and queues a `WeatherSeasonChanged` event for each flip since the
-  previous tick; **cross-track-change suppression**: events are only emitted
-  when `prev.Track == cur.Track && prev.Season != cur.Season`, so a zone whose
-  biome was reassigned by an admin rebuild emits nothing (listeners may assume
-  `From`/`To` are seasons of the same track). `persistState` (cheap; called
-  per-tick, from onSave, and from every command/export mutation path). `onSave`
-  (plugins.Save hook). `scheduleEmote` (±25% jitter so ambience doesn't
+  calls `seasons.ZoneSeasons` to establish the **baseline** `zoneSeasons` map,
+  immediately followed by **`engine.ReconcileSeasons(m.graph, m.zoneSeasons)`**
+  (boot assert — re-asserts `season-*` mutators after a reboot since zone
+  mutators do not survive reboots; no events emitted). `loadOrInitState`
+  (restore from `engine.DecodeState`, or `sim.NewState`/`sim.DeriveSeed` on a
+  fresh start). `tick` — when `seasonsOn`, calls `seasons.EffectiveClimate` to
+  produce the climate input for `sim.Step` (the seasonsOn gate); then Step →
+  `engine.Reconcile` (rather than bare Apply so engine-side `decayrate` drift
+  self-corrects within one tick); then `resolveSeasons` if `seasonsOn`.
+  `resolveSeasons` — re-resolves all zone seasons and queues a
+  `WeatherSeasonChanged` event for each flip since the previous tick; calls
+  **`engine.ReconcileSeasons(m.graph, zs)`** after storing the new map
+  (per-tick assert — keeps `season-*` mutators live against the specs' `decayrate`
+  safety net); **cross-track-change suppression**: season-change events are only
+  emitted when `prev.Track == cur.Track && prev.Season != cur.Season`, so a zone
+  whose biome was reassigned by an admin rebuild emits nothing (listeners may
+  assume `From`/`To` are seasons of the same track). `persistState` (cheap;
+  called per-tick, from onSave, and from every command/export mutation path).
+  `onSave` (plugins.Save hook). `scheduleEmote` (±25% jitter so ambience doesn't
   metronome).
 - **weather_commands.go**: bare `weather` shows local conditions (player view;
   includes the dominant front via `sim.Covering`; when `seasonsOn` also prints
