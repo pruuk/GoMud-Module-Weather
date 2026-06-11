@@ -181,5 +181,11 @@ func DefaultClimate() Climate {
 			SpawnWeight: 0.9,
 			Track:       "temperate",
 		},
+		"jungle": { // dense tropical canopy — monsoon-cycled (spec §3.2)
+			Weather:     map[WeatherType]float64{"rain": 5, "storm": 3, "fog": 4, "overcast": 3, "clear": 2},
+			Influence:   WeatherInfluence{IntensityDelta: 0.03, MoistureDelta: 0.06, MovementResistance: 0.25},
+			SpawnWeight: 1.3,
+			Track:       "monsoon",
+		},
 	}
 }

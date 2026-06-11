@@ -61,6 +61,19 @@ func TestDefaultClimateCoversStockBiomes(t *testing.T) {
 	}
 }
 
+func TestDefaultClimateJungleMonsoon(t *testing.T) {
+	p, ok := DefaultClimate()["jungle"]
+	if !ok {
+		t.Fatal("jungle profile missing")
+	}
+	if p.Track != "monsoon" {
+		t.Errorf("jungle should bind to monsoon, got %q", p.Track)
+	}
+	if p.Weather["rain"] == 0 || p.Weather["storm"] == 0 {
+		t.Errorf("jungle should weight rain/storm: %+v", p.Weather)
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.MaxActiveFronts <= 0 {

@@ -1,0 +1,302 @@
+{{template "header" .}}
+
+<style>
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--color-text-muted); margin-bottom: 1.5rem; font-size: 0.9rem; }
+
+    .panel {
+        background: var(--color-surface-white); border: 1px solid var(--color-border);
+        border-radius: 6px; padding: 1.1rem 1.25rem; margin-bottom: 1.25rem;
+    }
+    .panel h2 {
+        font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--color-text-subtle); padding-bottom: 0.5rem; margin-bottom: 0.85rem;
+        border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .status-bar { display: none; padding: 0.55rem 0.9rem; border-radius: 4px; font-size: 0.85rem; margin-bottom: 1rem; }
+    .status-bar.success { background: var(--color-success-bg); color: var(--color-success-text); display: block; }
+    .status-bar.error   { background: var(--color-error-bg); color: var(--color-error-text); display: block; }
+
+    /* status summary */
+    .stat-line { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.875rem; margin-bottom: 0.85rem; }
+    .stat-line .label { color: var(--color-text-muted); margin-right: 0.3rem; }
+    .stat-line .val { font-weight: 600; }
+    .pill {
+        display: inline-block; font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.03em; padding: 0.1rem 0.45rem; border-radius: 3px;
+    }
+    .pill.on  { background: var(--color-success-bg); color: var(--color-success-text); }
+    .pill.off { background: var(--color-chip-bg); color: var(--color-chip-text); }
+    .last-action { font-size: 0.82rem; color: var(--color-text-faint); margin-top: 0.6rem; font-style: italic; }
+
+    /* tables */
+    table.data { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-top: 0.4rem; }
+    table.data th, table.data td { text-align: left; padding: 0.35rem 0.55rem; border-bottom: 1px solid var(--color-border-faint); }
+    table.data th { color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.03em; }
+    table.data tr:last-child td { border-bottom: none; }
+    table.data .empty { color: var(--color-text-placeholder); font-style: italic; padding: 0.6rem 0.55rem; }
+    .table-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-subtle); margin: 1rem 0 0.2rem; }
+
+    /* config table */
+    .cfg-input { width: 100%; max-width: 220px; }
+    .badge {
+        display: inline-block; font-size: 0.68rem; font-weight: 600; padding: 0.12rem 0.45rem;
+        border-radius: 3px; background: var(--color-chip-bg); color: var(--color-chip-text);
+        border: 1px solid var(--color-border-light); white-space: nowrap;
+    }
+    .badge.live { background: var(--color-success-bg); color: var(--color-success-text); border-color: transparent; }
+
+    /* buttons */
+    .btn {
+        padding: 0.35rem 0.85rem; border: none; border-radius: 4px; font-size: 0.82rem;
+        font-weight: 600; cursor: pointer; background: var(--color-primary); color: var(--color-surface-white);
+    }
+    .btn:hover { background: var(--color-primary-hover); }
+    .btn:disabled { background: var(--color-text-secondary); cursor: default; }
+    .btn-warn { background: var(--color-error-text); }
+    .btn-warn:hover { filter: brightness(1.1); }
+
+    /* actions forms */
+    .action-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.85rem; margin-bottom: 1rem; }
+    .action-row:last-child { margin-bottom: 0; }
+    .field label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .field input { width: 100%; }
+    .field.sm { width: 110px; }
+    .field.md { width: 170px; }
+    .action-note { font-size: 0.75rem; color: var(--color-text-faint); margin-bottom: 0.6rem; }
+</style>
+
+<h1>Weather &amp; Seasons</h1>
+<p class="subtitle">Live simulation status, config editing with apply badges, and admin actions.</p>
+
+<div id="statusBar" class="status-bar"></div>
+
+<!-- ───────────────────────── Status ───────────────────────── -->
+<div class="panel">
+    <h2>Status <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--color-text-faint);font-size:0.72rem;">— refreshes every 5s</span></h2>
+
+    <div class="stat-line" id="statLine">
+        <span>Loading&hellip;</span>
+    </div>
+
+    <div class="table-title">Active fronts</div>
+    <table class="data">
+        <thead><tr><th>ID</th><th>Type</th><th>Zone</th><th>Intensity</th><th>Moisture</th><th>Age</th></tr></thead>
+        <tbody id="frontsBody"><tr><td class="empty" colspan="6">&mdash;</td></tr></tbody>
+    </table>
+
+    <div class="table-title">Zones</div>
+    <table class="data">
+        <thead><tr><th>Zone</th><th>Biome</th><th>Weather</th><th>Track</th><th>Season</th></tr></thead>
+        <tbody id="zonesBody"><tr><td class="empty" colspan="5">&mdash;</td></tr></tbody>
+    </table>
+
+    <div class="last-action" id="lastAction"></div>
+</div>
+
+<!-- ───────────────────────── Config ───────────────────────── -->
+<div class="panel">
+    <h2>Configuration</h2>
+    <table class="data">
+        <thead><tr><th>Key</th><th>Value</th><th>Apply</th><th></th></tr></thead>
+        <tbody id="configBody"><tr><td class="empty" colspan="4">Loading&hellip;</td></tr></tbody>
+    </table>
+</div>
+
+<!-- ───────────────────────── Actions ───────────────────────── -->
+<div class="panel">
+    <h2>Actions</h2>
+
+    <div class="action-note">Actions run on the game loop; results appear in the status panel on the next refresh.</div>
+
+    <div class="action-row">
+        <div class="field md">
+            <label>Spawn weather</label>
+            <input type="text" id="spawnWeather" placeholder="storm, rain, snow&hellip;" />
+        </div>
+        <div class="field md">
+            <label>Zone</label>
+            <input type="text" id="spawnZone" placeholder="zone name" />
+        </div>
+        <div class="field sm">
+            <label>Intensity</label>
+            <input type="number" id="spawnIntensity" min="0" max="1" step="0.1" placeholder="0&ndash;1" />
+        </div>
+        <button class="btn" onclick="doSpawn()">Spawn</button>
+    </div>
+
+    <div class="action-row">
+        <div class="field md">
+            <label>Clear zone (blank = all)</label>
+            <input type="text" id="clearZone" placeholder="zone name, or blank" />
+        </div>
+        <button class="btn btn-warn" onclick="doClear()">Clear</button>
+    </div>
+
+    <div class="action-row">
+        <div class="field">
+            <label>Geography graph</label>
+            <div class="action-note" style="margin:0">Re-crawl the world and rebuild the zone graph.</div>
+        </div>
+        <button class="btn btn-warn" onclick="doRebuild()">Rebuild graph</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    const STATUS_URL = '/admin/api/v1/weather/status';
+    const CONFIG_URL = '/admin/api/v1/weather/config';
+    const ACTION_URL = '/admin/api/v1/weather/action';
+
+    // Unwrap the engine's APIResponse envelope: res.data is {success, data, ...}.
+    function payload(res) { return res && res.data && res.data.data; }
+    // Error text: module handlers put their message in the envelope's data
+    // (a string) rather than the standard error field, so prefer that.
+    function errMsg(res) {
+        const p = payload(res);
+        if (typeof p === 'string' && p) return p;
+        return (res && res.error) || 'request failed';
+    }
+
+    // -------------------------------------------------------------------------
+    // Status panel
+    // -------------------------------------------------------------------------
+    async function fetchStatus() {
+        const res = await AdminAPI.get(STATUS_URL, true); // bypass cache: live poll
+        if (!res.ok) { showStatus('error', 'Failed to load status: ' + errMsg(res)); return; }
+        render(payload(res) || {});
+    }
+
+    function render(s) {
+        renderStatLine(s);
+        renderFronts(s.fronts || []);
+        renderZones(s.zones || []);
+        document.getElementById('lastAction').textContent =
+            s.lastAction ? 'Last action: ' + s.lastAction : '';
+        renderConfig(s.config || []);
+    }
+
+    function renderStatLine(s) {
+        const sim = s.simReady
+            ? '<span class="pill on">running</span>'
+            : '<span class="pill off">idle</span>';
+        const seasons = s.seasonsOn
+            ? '<span class="pill on">on</span>'
+            : '<span class="pill off">off</span>';
+        document.getElementById('statLine').innerHTML =
+            '<span><span class="label">Simulation</span>' + sim + '</span>' +
+            '<span><span class="label">Seasons</span>' + seasons + '</span>' +
+            '<span><span class="label">Round</span><span class="val">' + (s.round || 0) + '</span></span>' +
+            '<span><span class="label">Next tick</span><span class="val">' + (s.nextTickRound || 0) + '</span></span>' +
+            '<span><span class="label">Graph</span><span class="val">' +
+                (s.graphZones || 0) + ' zones / ' + (s.graphEdges || 0) + ' edges / ' +
+                (s.graphComponents || 0) + ' comp.</span></span>';
+    }
+
+    function renderFronts(fronts) {
+        const body = document.getElementById('frontsBody');
+        if (!fronts.length) { body.innerHTML = '<tr><td class="empty" colspan="6">No active fronts.</td></tr>'; return; }
+        body.innerHTML = fronts.map(f =>
+            '<tr><td>' + f.id + '</td><td>' + escHtml(f.type) + '</td><td>' + escHtml(f.zone) +
+            '</td><td>' + fmt(f.intensity) + '</td><td>' + fmt(f.moisture) +
+            '</td><td>' + f.age + '/' + f.maxAge + '</td></tr>'
+        ).join('');
+    }
+
+    function renderZones(zones) {
+        const body = document.getElementById('zonesBody');
+        if (!zones.length) { body.innerHTML = '<tr><td class="empty" colspan="5">No zones (graph not built).</td></tr>'; return; }
+        body.innerHTML = zones.map(z =>
+            '<tr><td>' + escHtml(z.zone) + '</td><td>' + escHtml(z.biome || '') +
+            '</td><td>' + escHtml(z.weather || '') + '</td><td>' + escHtml(z.track || '') +
+            '</td><td>' + escHtml(z.season || '') + '</td></tr>'
+        ).join('');
+    }
+
+    function fmt(n) { return (typeof n === 'number') ? n.toFixed(2) : '0.00'; }
+
+    // -------------------------------------------------------------------------
+    // Config table
+    // -------------------------------------------------------------------------
+    function renderConfig(rows) {
+        const body = document.getElementById('configBody');
+        if (!rows.length) { body.innerHTML = '<tr><td class="empty" colspan="4">No config.</td></tr>'; return; }
+        body.innerHTML = rows.map(r => {
+            const id = 'cfg_' + r.key;
+            const live = /^live\b/.test(r.badge) ? ' live' : '';
+            return '<tr><td><code>' + escHtml(r.key) + '</code></td>' +
+                '<td><input type="text" class="cfg-input" id="' + id + '" value="' +
+                    escAttr(valStr(r.value)) + '" /></td>' +
+                '<td><span class="badge' + live + '">' + escHtml(r.badge) + '</span></td>' +
+                '<td><button class="btn" onclick="saveConfig(\'' + escAttr(r.key) + '\')">Save</button></td></tr>';
+        }).join('');
+    }
+
+    function valStr(v) {
+        if (v === null || v === undefined) return '';
+        return String(v);
+    }
+
+    window.saveConfig = async function (key) {
+        const input = document.getElementById('cfg_' + key);
+        const value = input ? input.value.trim() : '';
+        const res = await AdminAPI.post(CONFIG_URL, { key: key, value: value });
+        if (!res.ok) { showStatus('error', 'Save failed: ' + errMsg(res)); return; }
+        const p = payload(res) || {};
+        showStatus('success', 'Saved ' + key + ' — ' + (p.badge || 'queued') + '.');
+        setTimeout(fetchStatus, 500); // pick up the applied value
+    };
+
+    // -------------------------------------------------------------------------
+    // Actions
+    // -------------------------------------------------------------------------
+    async function fireAction(a) {
+        const res = await AdminAPI.post(ACTION_URL, a);
+        if (!res.ok) { showStatus('error', 'Action failed: ' + errMsg(res)); return; }
+        const p = payload(res);
+        showStatus('success', (typeof p === 'string' && p) ? p : 'Action accepted.');
+        setTimeout(fetchStatus, 2000); // async: result lands in a later snapshot
+    }
+
+    window.doSpawn = function () {
+        const weather = document.getElementById('spawnWeather').value.trim();
+        const zone    = document.getElementById('spawnZone').value.trim();
+        const intStr  = document.getElementById('spawnIntensity').value.trim();
+        if (!weather || !zone) { showStatus('error', 'Spawn requires a weather type and a zone.'); return; }
+        fireAction({ action: 'spawn', weather: weather, zone: zone, intensity: parseFloat(intStr) || 0 });
+    };
+
+    window.doClear = function () {
+        const zone = document.getElementById('clearZone').value.trim();
+        const where = zone ? 'zone "' + zone + '"' : 'ALL zones';
+        if (!confirm('Clear weather in ' + where + '?')) return;
+        fireAction({ action: 'clear', zone: zone });
+    };
+
+    window.doRebuild = function () {
+        if (!confirm('Rebuild the geography graph by re-crawling the world?')) return;
+        fireAction({ action: 'rebuild' });
+    };
+
+    // -------------------------------------------------------------------------
+    // Utilities
+    // -------------------------------------------------------------------------
+    function showStatus(type, msg) {
+        const bar = document.getElementById('statusBar');
+        bar.className   = 'status-bar ' + type;
+        bar.textContent = msg;
+        if (type === 'success') setTimeout(() => { bar.className = 'status-bar'; }, 3000);
+    }
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    fetchStatus();
+    setInterval(fetchStatus, 5000);
+})();
+</script>
+
+{{template "footer" .}}

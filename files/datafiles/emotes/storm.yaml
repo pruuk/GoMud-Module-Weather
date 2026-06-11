@@ -10,3 +10,11 @@ indoor:
   default:
     - "Rain hammers against the walls and shutters."
     - "Thunder rattles the timbers; the whole structure groans."
+seasonal:
+  winter:
+    outdoor:
+      default:
+        - "Thunder rolls through driving sleet; lightning glares off the ice."
+    indoor:
+      default:
+        - "An ice-storm flogs the walls; the timbers pop with cold."

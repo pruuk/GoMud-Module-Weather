@@ -22,6 +22,7 @@ func (m *weatherModule) startSim(round uint64) {
 	}
 	if m.graph == nil {
 		mudlog.Warn("Weather: no geography graph; simulation idle (fix the world and run 'weather rebuild')")
+		m.publishSnapshot() // publish "idle" state so the admin page can show it
 		return
 	}
 	m.simCfg = m.cfg.simConfig()
@@ -36,6 +37,7 @@ func (m *weatherModule) startSim(round uint64) {
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	m.scheduleEmote(round)
 	m.simReady = true
+	m.publishSnapshot()
 }
 
 // loadContent loads climate overrides and emote tables from the module's
@@ -52,6 +54,12 @@ func (m *weatherModule) loadContent() {
 		mudlog.Warn("Weather: emote tables failed to load", "error", err)
 	}
 	m.tables = tables
+
+	seasonalTables, err := content.LoadSeasonalEmotes(files, "files/datafiles/emotes/seasons")
+	if err != nil {
+		mudlog.Warn("Weather: seasonal emote tables failed to load", "error", err)
+	}
+	m.seasonalTables = seasonalTables
 }
 
 // loadSeasons loads season tracks and establishes the baseline per-zone
@@ -124,6 +132,7 @@ func (m *weatherModule) tick(round uint64) {
 	}
 	m.persistState()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
+	m.publishSnapshot()
 }
 
 // resolveSeasons re-resolves every zone's season and queues a

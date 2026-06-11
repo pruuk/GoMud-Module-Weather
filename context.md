@@ -16,17 +16,24 @@ goroutine — no synchronization needed.
   `mutators/*` from it via the plugin registry, `content` loaders read the
   rest). `weatherModule` struct (plug, cfg, graph, started, simReady,
   simCfg, climate, tables, state, nextTick, nextEmote; plus `tracks
-  seasons.Tracks`, `seasonsOn bool`, `zoneSeasons map[sim.ZoneId]seasons.ZoneSeason`
-  for the seasons layer). `init()` → `plugins.New` + `AttachFileSystem` +
-  `SetOnLoad`, then registers the `weather` command as a **player** command
-  (not admin-only; admin subcommands are gated in-handler) and the exports.
-  Command/export registration MUST happen in `init()`, not `onLoad`:
-  `plugins.Load()` harvests the plugin's `userCommands` map into the engine
-  registry BEFORE invoking `onLoad`, so anything registered in `onLoad` is lost.
-  Behavior is gated on `cfg.Enabled`/`simReady` in-handler instead. `onLoad`:
-  loads config, then (when enabled) registers `SetOnSave` and a `NewRound`
-  listener. `onNewRound`: one-time startup (loadOrBuildGraph + startSim), the
-  jittered ambient-emote pass, and the coarse weather tick. `loadOrBuildGraph`/
+  seasons.Tracks`, `seasonsOn bool`, `zoneSeasons map[sim.ZoneId]seasons.ZoneSeason`,
+  and `seasonalTables content.SeasonalTables` (the standalone seasonal-ambience
+  emote tables) for the seasons layer; and `lastAdminAction string` carrying
+  the most recent admin-page action result for the snapshot). `init()` →
+  `plugins.New` + `AttachFileSystem` + `SetOnLoad`, then registers the `weather`
+  command as a **player** command (not admin-only; admin subcommands are gated
+  in-handler), the exports, and the admin web surface (`registerAdminWeb()`).
+  Command, export, and web registration MUST happen in `init()`, not `onLoad`:
+  `plugins.Load()` harvests the plugin's command map and admin web surface into
+  the engine registry BEFORE invoking `onLoad`, so anything registered in `onLoad`
+  is lost. Behavior is gated on `cfg.Enabled`/`simReady` in-handler instead.
+  `onLoad`: loads config, then (when enabled) registers `SetOnSave`, a `NewRound`
+  listener, and the two admin event listeners (`WeatherAdminAction`,
+  `WeatherConfigChanged`). `onNewRound`: one-time startup (loadOrBuildGraph + startSim), the
+  jittered ambient-emote pass
+  (`engine.EmitAmbient(m.state.Weather, m.zoneSeasons, m.tables, m.seasonalTables, util.Rand)`
+  — the single arbiter; passes nil season maps harmlessly when seasons are off),
+  and the coarse weather tick. `loadOrBuildGraph`/
   `rebuildGraph`: cache-or-crawl; `rebuildGraph` also calls `startSim`,
   `engine.Reconcile`, and (when `seasonsOn`) recomputes `m.zoneSeasons` and
   calls `engine.ReconcileSeasons` (post-rebuild heal — prevents stale-zone
@@ -36,11 +43,17 @@ goroutine — no synchronization needed.
   — queued on the engine event bus when a zone's resolved season flips. Never
   emitted on the first (baseline) resolution after boot, so reboots do not
   replay a flood of events. Other modules listen by importing this type:
-  `events.RegisterListener(weather.WeatherSeasonChanged{}, handler)`. Implements
-  `events.Event` via the `Type() string` method.
+  `events.RegisterListener(weather.WeatherSeasonChanged{}, handler)`. Also
+  defines the two internal admin bridges: `WeatherAdminAction{Action, Weather,
+  Zone, Intensity}` — queued by HTTP handlers, executed on the game loop through
+  the same paths as the in-game admin commands (`spawn` / `clear` / `rebuild`);
+  and `WeatherConfigChanged{Key}` — queued after a config write is persisted,
+  causing the game loop to re-read the config and run the changed key's live
+  applier. All three implement `events.Event` via `Type() string`.
 - **weather_tick.go**: `startSim` (idempotent; graceful degradation — logs once
-  and stays idle when no graph exists). `loadContent` (climate overrides + emote
-  tables from the embedded FS, both fail-soft). `loadSeasons` — fail-soft
+  and stays idle when no graph exists). `loadContent` (climate overrides, weather
+  emote tables, and the seasonal-ambience tables — `content.LoadSeasonalEmotes`
+  into `m.seasonalTables` — from the embedded FS, all fail-soft). `loadSeasons` — fail-soft
   ladder: `SeasonsEnabled: false` → skip; no usable calendar → skip; no/invalid
   tracks → skip; each rejection leaves `seasonsOn = false` so weather runs
   exactly as v1. On success sets `m.seasonsOn = true`, stores tracks, and
@@ -81,6 +94,42 @@ goroutine — no synchronization needed.
   map[string]any` returns `{"track": string, "season": string, "blend":
   float64}` from `m.zoneSeasons`; empty strings when seasons are off, the zone
   is unknown, or its biome is unbound.
+- **weather_admin.go**: the read-side bridge between the game loop and the HTTP
+  layer. `AdminSnapshot` struct — an immutable deep-copy of module state
+  (`SimReady`, `SeasonsOn`, `Round`, `NextTickRound`, graph summary, `Fronts`,
+  `Zones`, `Config` rows, `LastAction`) serialized to JSON for the status
+  endpoint. Package-level `adminSnapshot atomic.Pointer[AdminSnapshot]` —
+  **written only from the game loop**; HTTP handlers call `loadSnapshot()` to
+  read it and never touch live module fields. Snapshot refresh sites:
+  `publishSnapshot()` is called at the end of `startSim`, at the end of `tick`,
+  at the end of `rebuildGraph`, and at the end of every `applyAdminAction` and
+  `applyConfigChange` invocation. `configKeyMeta map[string]configKeyApplier`
+  — the **single source of truth** for every public config key: maps each key to
+  its badge text (shown on the page via `configRows()`) and its optional
+  `LiveApply` function (run on the game loop when the key changes). `configRows()`
+  reads `configKeyMeta` to build the `Config` slice in the snapshot so the page
+  renders exactly what the module will do. `applyAdminAction(WeatherAdminAction)`
+  — executes spawn / clear / rebuild on the game loop, mirrors the in-game
+  command paths, then refreshes the snapshot. `applyConfigChange(Config, key)`
+  — adopts a freshly re-read config, runs the key's `LiveApply` if present and
+  the sim is ready, then refreshes the snapshot. `onAdminAction` /
+  `onConfigChanged` — the listener glue wiring the two event types to the
+  appliers; both registered in `onLoad`, both run on the game loop.
+- **weather_admin_api.go**: the HTTP registration and handler layer.
+  `registerAdminWeb()` — called from `init()` (the harvest rule: the engine
+  harvests admin web surface at `plugins.Load()`, before `onLoad`, same as
+  commands). Wires: `AdminPage("Weather", "weather", "html/admin/weather.html",
+  ...)` — the `htmlFile` argument is relative to `datafiles/` (NOT
+  `datafiles/html/admin/` as the engine doc comment implies; the loader reads the
+  plugin-FS key verbatim — see `plugins.go:535`); the page is served at
+  `/admin/weather`. Three endpoints: `GET weather/status` (open to any admin
+  session), `POST weather/config` (requires `weather.write`), `POST
+  weather/action` (requires `weather.write`). `RegisterPermissions(weather.write)`.
+  Handlers are **strictly limited** to three touches: (1) `loadSnapshot()` on
+  the atomic pointer (read-only); (2) `m.plug.Config.Set` in
+  `handleAdminConfig` (the engine config layer, which is internally locked); (3)
+  `events.AddToQueue` in both write handlers (the event queue is thread-safe).
+  Handlers never access any other `weatherModule` field.
 - **weather_config.go**: `Config` struct (Enabled, IncludeSecretExits,
   RebuildGraphOnBoot, Seed, TickEveryGameHours, MaxActiveFronts, SpawnRateScale,
   EmoteMode, EmoteEveryRounds, BuffsEnabled, Persist, `SeasonsEnabled`). Keys
@@ -98,7 +147,14 @@ goroutine — no synchronization needed.
 ## Threading
 GoMud runs a single game-loop goroutine (MainWorker) for both NewRound listeners
 and command handlers, so `weatherModule` fields need no synchronization.
-Exported functions are invoked on the same goroutine.
+Exported functions are invoked on the same goroutine. **Designed exception
+surface — HTTP handlers:** `handleAdminStatus`, `handleAdminConfig`, and
+`handleAdminAction` in `weather_admin_api.go` run on web goroutines outside
+MainWorker. They are permitted to touch exactly three things: the
+`adminSnapshot` atomic pointer (read-only via `loadSnapshot()`), the engine
+config layer (via `m.plug.Config.Set`, which is internally locked), and the
+engine event queue (via `events.AddToQueue`, which is thread-safe). Any access
+to other `weatherModule` fields from a handler is a concurrency bug.
 
 ## Build/Testing
 Compiles only inside a GoMud checkout (imports `internal/*`). `weather_config_test.go`

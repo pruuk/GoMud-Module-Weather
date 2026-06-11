@@ -6,3 +6,11 @@ outdoor:
 indoor:
   default:
     - "The trapped air is stiflingly hot and utterly still."
+seasonal:
+  dry:
+    outdoor:
+      default:
+        - "The dry-season heat is merciless; the cracked earth radiates like a forge."
+    indoor:
+      default:
+        - "Even inside, the dry heat sits on your chest like a weight."

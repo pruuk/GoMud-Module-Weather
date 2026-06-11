@@ -67,11 +67,23 @@ module portable across GoMud and DOGMud.
   `gametime.AddPeriod` period string; values < 1 clamp to 1. `NextTickRound`
   returns the round number one period from now. `CurrentRound` exposes
   `util.GetRoundCount`.
-- **emotes.go**: `EmitAmbient(weather, tables, roll)` — sends one ambient line
-  into each occupied room whose zone has non-calm weather. Room biome drives
-  table variant; `isOutdoorBiome` determines the indoor/outdoor section.
-  `roll` is the presentation RNG (pass `util.Rand`) — NEVER the sim RNG.
-  Returns lines sent.
+- **emotes.go**: `EmitAmbient(weather, zoneSeasons, tables, seasonal, roll)` —
+  the single ambient-emote **arbiter**. Sends at most ONE line per occupied room
+  per pass. Room biome drives the table variant; `isOutdoorBiome` determines the
+  indoor/outdoor section. The arbiter (spec S-R1):
+  1. If the room's zone has non-calm weather, send a **weather** line —
+     season-variant-aware: it passes the zone's season (when `zoneSeasons` has
+     one) into `tables.Pick`, so the season's variant lines win when present.
+     Weather always wins; the room is done for this pass.
+  2. Otherwise (calm zone) — only when the zone is season-bound **and** a
+     1-in-`seasonalEmoteOneIn` roll passes — send a **seasonal-ambience** line
+     from `seasonal.Pick(track, season, …)`. This is strictly quieter than
+     weather: roughly one seasonal line per occupied calm room per few passes.
+  `seasonalEmoteOneIn` is a package `const` (currently `3`); promote to config
+  only if play feel demands. `zoneSeasons`/`seasonal` may be nil/empty when
+  seasons are off (both layers stay silent; weather falls back to base lines via
+  `season == ""`). `roll` is the presentation RNG (pass `util.Rand`) — NEVER the
+  sim RNG. Returns lines sent.
 
 ## Dependencies
 - `internal/rooms`, `internal/mutators`, `internal/gametime`, `internal/util`,

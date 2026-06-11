@@ -1,6 +1,6 @@
 # GoMud Weather Module — Seasons (v2) Design Spec
 
-- **Status:** Approved design, pre-implementation
+- **Status:** Implemented (S1–S3 complete, 2026-06-10); v2 seasons shipped
 - **Date:** 2026-06-10
 - **Parent spec:** [Weather module design](2026-06-08-weather-module-design.md) — §11 sketched the seams this spec now fills in. Where the two disagree, this spec wins for seasons.
 - **Baseline:** Weather v0.1.0 (M3 complete, registry-listed). Seasons build strictly on top; no behavior change when disabled.
@@ -345,6 +345,40 @@ calendar the tracks don't fit ⇒ log once, run exactly as v1 weather.
   weather-variant support, default content pass (incl. `jungle`/`monsoon`),
   README/builder-guide updates.
 
+  > **2026-06-10 — S3 implemented and smoke-verified.** Standalone suites
+  > (`sim`/`crawler`/`content`/`seasons`) + checkout (`go generate`/`go build`/
+  > `go vet`/`go test`) green; `gofmt -l .` clean. The stock world boots with
+  > `mutators.LoadDataFiles() loadedCount=24` and `Weather: seasons active
+  > tracks=2 seasonalZones=8`, no weather/season WARN/ERROR. **Seasonal ambience
+  > (calm-zone layer):** in winter Dark Forest (`forest`→`temperate`) with
+  > weather cleared, the forest-variant winter ambience line "Snow slides from a
+  > burdened bough with a soft thump." rendered twice over ~7.5 min (game
+  > 3:34–5:13 AM, ~5 emote passes) — atmospheric, not spammy. Spawning rain
+  > (`weather spawn rain Dark Forest 0.9`) silenced the seasonal layer
+  > immediately (weather wins). **Weather seasonal variant:** with rain up in
+  > winter the first weather emote was the winter variant verbatim — "Freezing
+  > rain rattles off every surface like thrown gravel." (rain×winter); when the
+  > front drifted to fog (no shipped fog variant) emotes fell back to base fog
+  > lines, as designed. Note: the weather *mutator description* on `look` ("A
+  > steady rain falls…") stays base — only emotes carry the seasonal variant,
+  > per §6. **Seasons off:** `SeasonsEnabled: false` rebuild boots with no
+  > `seasons active` line and `weather seasons` → off; spawning rain yields a
+  > BASE emote ("Rain drips from leaf to leaf, a thousand small drumbeats.")
+  > with no variant, no ambience, and no seasonal description on `look`.
+  > Restoring the overlay (sync) + rebuild re-asserts `seasonalZones=8` and the
+  > in-game winter description; a clean `/shutdown` + reboot re-asserts both
+  > layers with **zero** `WeatherSeasonChanged` events (no reboot flood).
+  > **Unverified — indoor seasonal render:** not reachable live on the stock
+  > world, because the indoor-biome heuristic ids (`cave`/`underground`/
+  > `dungeon`/`indoor`/`tunnel`/`sewer`) are all season-*unbound* while the 8
+  > seasonal zones use outdoor biomes — so no stock room is both seasonal and
+  > indoor. Indoor variant + ambience rendering is covered by the `content`
+  > unit tests instead. **Aside (engine, not S3):** the duplicate-login *kick*
+  > path (`FinalizeLoginOrCreate`, `internal/inputhandlers/login.go:37`) nil-
+  > panics when the existing session is link-dead (`GetByUserId` → nil, then
+  > `.ConnectionId()`); surfaced by the smoke harness's rapid reconnect, not by
+  > seasons. S-R1 verdict recorded in the risks table.
+
 Each milestone is its own plan → review → implement cycle with the standing
 approval gates.
 
@@ -372,7 +406,7 @@ approval gates.
 
 | # | Risk / question | Mitigation / answer |
 |---|---|---|
-| S-R1 | Two ambient-emote sources could feel spammy | Seasonal emotes fire at a lower cadence and yield to weather emotes; both ride one scheduler pass |
+| S-R1 | Two ambient-emote sources could feel spammy | Seasonal emotes fire at a lower cadence and yield to weather emotes; both ride one scheduler pass. **2026-06-10 (S3 smoke) — verdict: NOT spammy.** With both layers live at stock cadence (`EmoteEveryRounds: 20`, seasonal layer throttled by `seasonalEmoteOneIn: 3`, calm zones only), one occupied room (winter Dark Forest) saw ~2 seasonal-ambience lines over ~7.5 min (≈2–3 per 10 min), at most one ambient line per emote pass, and weather always pre-empted the seasonal line. Reads as occasional atmosphere, not spam — `seasonalEmoteOneIn` stays at 3 (no promotion to config needed). |
 | S-R2 | Mutator count per zone grows to 2 (weather + season) | Engine merges zone mutators at render already; verified pattern. **2026-06-10 (S2):** Seasonal specs ship **without `namemodifier`** — room titles already carry the weather tag and adding a second seasonal tag makes titles noisy. Description lines carry both layers cleanly. **Validated by the S2 smoke render (2026-06-10):** with a storm spawned over a winter zone, `look` rendered the room title carrying only the weather tag (`Forest Road (storm-wracked)`) while the description carried both layers in order — the seasonal line ("Winter holds the land; frost rims every edge…") followed by the storm line ("Rain lashes down in sheets and thunder rolls…") and the storm `namemodifier` banner. No title noise; the two-layer description read cleanly. The no-`namemodifier`-on-seasons call was correct. |
 | S-R3 | Worlds with non-12-month calendars get no defaults | Deliberate: track files must be authored to the calendar; fail-soft to v1 weather otherwise |
 | S-R4 | Hemisphere support limited to biome-id granularity | Documented; per-zone track override is the designed seam |

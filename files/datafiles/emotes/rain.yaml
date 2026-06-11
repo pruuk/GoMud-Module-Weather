@@ -10,3 +10,19 @@ indoor:
   default:
     - "Rain drums on the roof overhead."
     - "Water trickles past outside; somewhere a slow drip finds its rhythm."
+seasonal:
+  winter:
+    outdoor:
+      default:
+        - "Freezing rain rattles off every surface like thrown gravel."
+        - "Each drop stings with cold; the puddles film over with slush."
+    indoor:
+      default:
+        - "Icy rain crackles against the roof in waves."
+  wet:
+    outdoor:
+      default:
+        - "The downpour is total, a warm wall of water without seams."
+    indoor:
+      default:
+        - "The wet-season deluge drums on the roof without pause."
