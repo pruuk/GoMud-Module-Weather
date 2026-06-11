@@ -4,7 +4,7 @@ outdoor:
     - "A gritty wall of dust rolls through, stinging your eyes."
     - "The wind hisses, dragging veils of dust across the ground."
   desert:
-    - "The dunes are moving — whole crests pour downwind in hissing ribbons."
+    - "The dunes are moving — whole crests pour downwind in long smoking ribbons."
   road:
     - "Dust devils chase one another down the road before unraveling in the wind."
 indoor:

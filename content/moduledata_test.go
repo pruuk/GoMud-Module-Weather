@@ -68,6 +68,7 @@ func TestShippedEmoteTables(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("no emote tables shipped")
 	}
+	known := knownBiomes()
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -90,7 +91,6 @@ func TestShippedEmoteTables(t *testing.T) {
 		if len(table.Indoor["default"]) == 0 {
 			t.Errorf("%s: needs at least one indoor default line", e.Name())
 		}
-		known := knownBiomes()
 		checkBiomeKeys(t, e.Name(), "outdoor", table.Outdoor, known)
 		checkBiomeKeys(t, e.Name(), "indoor", table.Indoor, known)
 		// Seasonal variant keys must be seasons of a shipped track, and every
@@ -126,6 +126,7 @@ func TestShippedSeasonalAmbience(t *testing.T) {
 	if len(st) != len(want) {
 		t.Errorf("expected %d ambience tables, got %d", len(want), len(st))
 	}
+	known := knownBiomes()
 	for _, k := range want {
 		sec, ok := st[k]
 		if !ok {
@@ -136,8 +137,8 @@ func TestShippedSeasonalAmbience(t *testing.T) {
 			t.Errorf("%v: needs outdoor and indoor default lines", k)
 		}
 		file := k.Track + "_" + k.Season + ".yaml"
-		checkBiomeKeys(t, file, "outdoor", sec.Outdoor, knownBiomes())
-		checkBiomeKeys(t, file, "indoor", sec.Indoor, knownBiomes())
+		checkBiomeKeys(t, file, "outdoor", sec.Outdoor, known)
+		checkBiomeKeys(t, file, "indoor", sec.Indoor, known)
 	}
 	entries, _ := os.ReadDir("../files/datafiles/emotes/seasons")
 	for _, e := range entries {
