@@ -98,3 +98,9 @@ jobs:
       - name: go test -race (module in checkout)
         working-directory: gomud
         run: go test -race -count=1 ./modules/weather/...
+
+      - name: Triage hint (read on failure)
+        if: failure()
+        run: |
+          echo "If 'standalone' passed and this job failed, upstream GoMud likely moved an API the module binds to."
+          echo "Patch engine/ against the new upstream — see CONTRIBUTING.md. The red is signal, not noise."

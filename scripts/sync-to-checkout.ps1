@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Force -Path $dest | Out-Null
 # go.sum MUST NOT travel. The .git FILE exclusion matters when running from a
 # git worktree (where .git is a file, not a directory). robocopy returns 0-7 on
 # success (>=8 is an error).
+# ALSO mirrored by the rsync --exclude list in .github/workflows/ci.yml — keep both in sync.
 robocopy "." $dest /MIR `
   /XD .git .github docs scripts .worktrees .claude `
   /XF go.mod go.sum .git "*.png" "Screenshot*" `
