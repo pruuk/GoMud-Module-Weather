@@ -1,6 +1,6 @@
 # GoMud Weather Module — Admin Page Design Spec
 
-- **Status:** Approved design, pre-implementation
+- **Status:** Implemented (AP1 complete, smoke-verified 2026-06-10); awaiting the combined seasons+AP1 merge
 - **Date:** 2026-06-10
 - **Origin:** Volte6's v0.1.0 review suggestion — "add admin pages. Not strictly
   necessary, but super useful for overriding configs."
