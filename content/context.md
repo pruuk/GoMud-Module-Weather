@@ -86,9 +86,9 @@ dependency is `gopkg.in/yaml.v2`, which the GoMud engine itself uses.
     rejects any other name), a player-visible description, `triggerrate` set
     and `triggercount` in 1..5 (the mutator re-applies every round the weather
     holds, so a short count means the buff fades shortly after shelter), and
-    the **gentleness policy**: every statmod must be a small penalty in
-    [-10, -1] — no damage, no scripts, no bonuses (a positive mod is a design
-    change needing explicit review). A **cross-check** then walks every shipped
+    the **gentleness policy**: every statmod must be in [-10, 0] — a small
+    penalty or zero; no damage, no scripts, no bonuses (a positive mod is
+    rejected as a design change needing explicit review). A **cross-check** then walks every shipped
     mutator spec: each `playerbuffids` entry must be one of the shipped buffs
     (no borrowing engine ids like 31/33, which vary by world and are harsher
     than weather warrants). At least 3 buff specs must ship.

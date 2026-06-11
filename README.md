@@ -377,9 +377,10 @@ namespaces, validated under the same rules:
 
 - **`files/datafiles/mutators/weather_<type>.yaml`** — one per weather type,
   **plus** a sheltered `weather_<type>_indoor.yaml` twin used by per-room
-  refinement (description line only: no name tag, no alert, no `lightmod`, no
-  buffs — the shipped-data tests enforce the pairing and the indoor
-  restrictions; see *Extending the module*).
+  refinement (description line only — the shipped-data tests enforce the
+  pairing and forbid `lightmod`, buffs, and alerts on indoor variants;
+  omitting the name tag is authoring convention, not test-enforced; see
+  *Extending the module*).
 - **`files/datafiles/mutators/season_<track>_<season>.yaml`** — one per shipped
   (track, season): `season-temperate-winter`, …, `season-monsoon-dry`. Each
   appends one description line to every room in the zone, e.g. *"Winter holds the
@@ -492,7 +493,12 @@ section is the recipe book for adding things that don't. Throughout, "shipped
 data" means the YAML under this module's `files/datafiles/` (changing it means
 editing the module and rebuilding — the shipped-data tests then hold you to the
 rules); a **world override** is the same-named file in your world's own data
-directory, which wins without touching the module.
+directory, which wins without touching the module — but that seam exists only
+for **mutator specs and buffs**, the two kinds of file the engine loads
+disk-first. Climate files, weather emote tables, seasonal-ambience tables, and
+season tracks are read exclusively from the module's embedded data — a
+same-named world file is silently ignored — so extending those always means
+editing the module and rebuilding.
 
 ### Recipe: a new weather type, end to end
 
@@ -500,8 +506,10 @@ Four files (one optional), in dependency order. Worked example: `ashfall`.
 
 1. **Make it formable — climate weights.** A weather type exists wherever a
    climate gives it weight. Either add it to a biome's base weights
-   (`files/datafiles/climate/<biome>.yaml`, `weather: { ashfall: 4, ... }` —
-   remember an override replaces the profile wholesale) or introduce it only
+   (`files/datafiles/climate/<biome>.yaml`: `biome: tundra` plus
+   `weather: { ashfall: 4, ... }` — the `biome:` key is **required**, a file
+   without it is rejected with a logged warning; and remember a climate file
+   replaces the biome's profile wholesale) or introduce it only
    during a season via `weatherWeightAdditions:` (the glass-rain pattern in
    *Season tracks* above — no climate edit needed).
 2. **Make it render — a mutator spec PAIR.** `weather_ashfall.yaml` (id
@@ -522,9 +530,12 @@ Four files (one optional), in dependency order. Worked example: `ashfall`.
 One Go touch for module contributors: add the type to `sim.KnownWeatherTypes`
 (`sim/weather.go`). A drift-guard test fails in both directions — a shipped
 outdoor spec missing from the list, or a listed type with no shipped spec — and
-the list is what makes `BuffOverrides.<type>` recognize the new key. (A pure
-world-override type skips this, at the cost of `BuffOverrides.ashfall` being
-ignored — the config reader enumerates exactly `sim.KnownWeatherTypes`.)
+the list is what makes `BuffOverrides.<type>` recognize the new key. (There is
+no world-override path to a new weather type: steps 1 and 3 — climate weights
+and emote tables — load only from the module's embedded data, so a new type is
+always a module edit and a rebuild. While you're in there, add the list entry
+too, or `BuffOverrides.ashfall` is ignored — the config reader enumerates
+exactly `sim.KnownWeatherTypes`.)
 
 ### Recipe: a season track or esoteric season
 
@@ -572,7 +583,7 @@ What each `PerRoomRefinement` value costs and shows:
 
 | Mode | Players see | Cost |
 |---|---|---|
-| `occupied` *(default)* | Correct outdoor/indoor rendering in every room a player is in — refined the moment they walk in (`RoomChange`) and every tick. An *empty* room's data may be momentarily stale; no player is there to see it, and it heals on entry. | Negligible: a handful of mutator reconciles per move/tick; never force-loads a room. |
+| `occupied` *(default)* | Correct outdoor/indoor rendering in every room a player is in — refined on entry (`RoomChange`) and every tick. One honest caveat: the engine renders the entry look *before* the `RoomChange` listener runs, so the very first description of a freshly entered, previously unoccupied room can miss the weather line; it's correct from the next render on (a one-render lag the design spec accepts). An *empty* room's data may be momentarily stale; no player is there to see it, and it heals on entry. | Negligible: a handful of mutator reconciles per move/tick; never force-loads a room. |
 | `all` | Correct rendering in every room, occupied or not — for worlds with scripts or scrying that read unoccupied rooms' mutators. | Force-loads **every room in every zone each tick**. Above the engine's room-memory threshold that means load/save disk churn every tick. Use deliberately. |
 | `off` | The pre-M4 behavior: one zone-wide mutator; indoor rooms render the outdoor weather ("rain patters down" in the tavern). | Cheapest: one mutator list per zone. |
 
@@ -592,9 +603,9 @@ the old contract (see *What can break it*).
   `indoor:`, or inside a `seasonal:` block), keys are biome ids. Resolution is
   two steps: the room's biome id → that key's lines; no key for that biome →
   the `default` key. There is no chain beyond that (and indoor never falls
-  back to outdoor). Valid keys are the `sim.DefaultClimate` biome ids — for
-  shipped tables the tests enforce this; in world overrides an unknown key is
-  simply unreachable, because no room reports that biome.
+  back to outdoor). Valid keys are the `sim.DefaultClimate` biome ids — the
+  shipped-data tests enforce this, because an unknown key is simply
+  unreachable: no room ever reports that biome.
 
 ## API for other modules
 
@@ -656,7 +667,10 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
    `season-*` mutator — on zones, and in room modes on the rooms it refines —
    that doesn't match the simulation's (or the calendar's)
    view. If you hand-author a mutator named `weather-eclipse` or
-   `season-festival` and place it on a zone or room, the module strips it within one tick.
+   `season-festival` and place it on a zone or room, the module strips it within
+   one tick — with one qualifier: in the default `occupied` mode the reconciler
+   never visits an *unoccupied* room, so a stray there lingers until its
+   `decayrate` retires it or a player walks in (refine-on-entry strips it then).
    Use a different prefix for your own mutators. (A duplicate of one of our exact
    ids is caught at boot — the engine logs `duplicate mutator id` and keeps the
    disk version.)
@@ -801,7 +815,7 @@ against a live engine. It is not an installation mechanism — operators install
 through GoMud's module manager as described above.)
 
 CI (`.github/workflows/ci.yml`, the badge at the top) runs the same split on
-every push and pull request: a **standalone** job (the four pure packages,
+every push to `main` and every pull request: a **standalone** job (the four pure packages,
 gofmt/vet/`-race`) and an **engine-coupled** job that clones upstream GoMud
 *master*, syncs the module in (mirroring `sync-to-checkout.ps1`), and
 builds/vets/tests it there. The engine-coupled job deliberately tracks a
