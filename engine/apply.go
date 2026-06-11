@@ -153,3 +153,45 @@ func StripBuffs() int {
 	}
 	return n
 }
+
+// ApplyBuffOverrides rewires PlayerBuffIds on the registered OUTDOOR weather
+// specs per the BuffOverrides.<type> config: each entry replaces that type's
+// player buff list wholesale (an empty list strips it; Mob/Native lists are
+// untouched). Indoor variants are buff-free by rule and never touched (the
+// "weather-"+type id can't match a "-indoor" spec). Boot-time spec mutation
+// with the same mechanism and no-restore caveat as StripBuffs — and the module
+// always runs it BEFORE StripBuffs, so BuffsEnabled=false wins over any
+// override (spec §3). Returns the number of specs changed.
+func ApplyBuffOverrides(overrides map[string][]int) int {
+	return applyBuffOverrides(mutators.GetMutatorSpec, overrides)
+}
+
+// applyBuffOverrides is the testable core; the registry lookup is the seam
+// (the live spec registry is empty under `go test`).
+func applyBuffOverrides(lookup func(string) *mutators.MutatorSpec, overrides map[string][]int) int {
+	n := 0
+	for t, ids := range overrides {
+		id := WeatherMutatorPrefix + t
+		spec := lookup(id)
+		if spec == nil {
+			warnUnknownOverride(id)
+			continue
+		}
+		// Copy so the spec never aliases the config map's backing arrays.
+		spec.PlayerBuffIds = append([]int(nil), ids...)
+		n++
+	}
+	return n
+}
+
+// warnedOverrides: warn-once for overrides naming no loaded spec (e.g. a typo,
+// or "clear", which is the absence of a mutator). Single goroutine — no mutex.
+var warnedOverrides = map[string]bool{}
+
+func warnUnknownOverride(id string) {
+	if warnedOverrides[id] {
+		return
+	}
+	warnedOverrides[id] = true
+	mudlog.Warn("Weather: BuffOverrides entry matches no loaded mutator spec; ignored", "mutatorId", id)
+}

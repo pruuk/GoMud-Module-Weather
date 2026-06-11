@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
+	"github.com/GoMudEngine/GoMud/modules/weather/crawler"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
@@ -42,6 +44,17 @@ type Config struct {
 	Persist            bool    // save/restore fronts + RNG across reboots
 	SeasonsEnabled     bool    // master switch for the seasons layer
 	PerRoomRefinement  string  // RefineOccupied | RefineAll | RefineOff
+
+	// BuffOverrides replaces the outdoor weather specs' PlayerBuffIds per type
+	// (flat keys "BuffOverrides.<type>"): entry with ids = replacement, entry
+	// with an empty list = explicit strip, no entry = shipped buffs. Applied
+	// once at startSim, BEFORE the BuffsEnabled strip (disabled buffs win).
+	BuffOverrides map[string][]int
+	// ExcludeZonePatterns are the crawler's zone-skip globs (flat key, comma-
+	// separated). Defaults to the crawler's stock instance_*/ephemeral_* pair;
+	// there is no "exclude nothing" sentinel — to effectively disable
+	// exclusion, set a single never-matching token (e.g. "zzz-no-exclusions").
+	ExcludeZonePatterns []string
 }
 
 // getter abstracts plugin.Config.Get for testability.
@@ -137,7 +150,115 @@ func buildConfig(get getter) Config {
 	if c.PerRoomRefinement != RefineOccupied && c.PerRoomRefinement != RefineAll && c.PerRoomRefinement != RefineOff {
 		c.PerRoomRefinement = RefineOccupied
 	}
+	c.BuffOverrides = buffOverrides(get)
+	c.ExcludeZonePatterns = excludePatterns(get("ExcludeZonePatterns"))
 	return c
+}
+
+// warnConfig / warnedConfigKeys: buildConfig warns at most once per bad key,
+// through a seam because the engine logger is uninitialized under `go test`.
+// Game loop only (loadConfig runs in onLoad and the config-changed listener).
+var warnConfig = mudlog.Warn
+var warnedConfigKeys = map[string]bool{}
+
+func warnConfigOnce(key, msg string, args ...any) {
+	if warnedConfigKeys[key] {
+		return
+	}
+	warnedConfigKeys[key] = true
+	warnConfig(msg, args...)
+}
+
+// buffOverrides reads "BuffOverrides.<type>" for every known weather type
+// (sim.KnownWeatherTypes — "clear" included; it has no mutator, so an
+// override for it warns at apply time). Returns nil when nothing is set.
+func buffOverrides(get getter) map[string][]int {
+	var out map[string][]int
+	for _, t := range sim.KnownWeatherTypes {
+		key := "BuffOverrides." + string(t)
+		v := get(key)
+		if v == nil { // key absent: no override
+			continue
+		}
+		ids, ok := parseBuffIds(v, key)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = map[string][]int{}
+		}
+		out[string(t)] = ids
+	}
+	return out
+}
+
+// parseBuffIds parses one BuffOverrides value: comma-separated positive ints;
+// an empty string means "explicit strip" (empty list, ok). Bad tokens are
+// skipped with a warn (once per key); a value yielding NO valid ids at all is
+// dropped entirely (ok=false) — fail-soft to the shipped buffs, like every
+// other bad value in this module.
+func parseBuffIds(v any, key string) ([]int, bool) {
+	switch n := v.(type) {
+	case int:
+		if n > 0 {
+			return []int{n}, true
+		}
+	case int64:
+		if n > 0 {
+			return []int{int(n)}, true
+		}
+	case float64:
+		if i := int(n); i > 0 {
+			return []int{i}, true
+		}
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return []int{}, true // key present, value empty: explicit strip
+		}
+		var ids []int
+		var bad []string
+		for _, tok := range strings.Split(s, ",") {
+			if tok = strings.TrimSpace(tok); tok == "" {
+				continue
+			}
+			if id, err := strconv.Atoi(tok); err == nil && id > 0 {
+				ids = append(ids, id)
+			} else {
+				bad = append(bad, tok)
+			}
+		}
+		if len(bad) > 0 {
+			warnConfigOnce(key, "Weather: ignoring bad buff ids in config",
+				"key", key, "bad", strings.Join(bad, ","))
+		}
+		if len(ids) > 0 {
+			return ids, true
+		}
+		return nil, false // nothing usable: keep the shipped buffs
+	}
+	warnConfigOnce(key, "Weather: unusable buff override value", "key", key)
+	return nil, false
+}
+
+// excludePatterns parses the ExcludeZonePatterns key (comma-separated globs,
+// whitespace-trimmed). Absent or empty keeps the crawler's stock default —
+// identical behavior for existing installs.
+func excludePatterns(v any) []string {
+	raw := strings.TrimSpace(stringOr(v, ""))
+	if raw == "" {
+		return crawler.DefaultOptions().ExcludeZonePatterns
+	}
+	var pats []string
+	for _, tok := range strings.Split(raw, ",") {
+		if tok = strings.TrimSpace(tok); tok != "" {
+			pats = append(pats, tok)
+		}
+	}
+	if len(pats) == 0 {
+		return crawler.DefaultOptions().ExcludeZonePatterns
+	}
+	return pats
 }
 
 // simConfig maps module config onto the simulation's tuning knobs.

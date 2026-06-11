@@ -95,3 +95,20 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("MaxFrontRadius must be >= 0")
 	}
 }
+
+func TestKnownWeatherTypesCoverDefaultClimate(t *testing.T) {
+	known := map[WeatherType]bool{}
+	for _, w := range KnownWeatherTypes {
+		known[w] = true
+	}
+	if !known[Clear] {
+		t.Fatal("Clear must be a known weather type")
+	}
+	for biome, p := range DefaultClimate() {
+		for w := range p.Weather {
+			if !known[w] {
+				t.Errorf("biome %q uses weather %q missing from KnownWeatherTypes", biome, w)
+			}
+		}
+	}
+}

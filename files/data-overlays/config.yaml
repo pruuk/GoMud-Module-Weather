@@ -13,3 +13,16 @@ BuffsEnabled: true         # apply the curated default buffs carried by weather 
 Persist: true              # save/restore fronts + RNG across reboots
 SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
 PerRoomRefinement: occupied # occupied = refine rooms with players | all = every room (force-loads) | off = zone-scoped (v1)
+# Comma-separated globs of zones the geography crawler skips (applies on the
+# next graph rebuild). There is no "exclude nothing" value: empty falls back
+# to this default; to effectively disable exclusion, set a single
+# never-matching token (e.g. "zzz-no-exclusions").
+ExcludeZonePatterns: "instance_*,ephemeral_*"
+# Per-type buff overrides (take effect on reboot): comma-separated buff ids
+# REPLACE the outdoor weather mutator's playerbuffids for that type; an empty
+# value strips that type's buffs. Indoor variants never carry buffs, and
+# BuffsEnabled: false still strips everything, overrides included. Shipped
+# ids: 59001 chilled (blizzard), 59002 soaked (storm), 59003 parched (heatwave).
+# BuffOverrides.storm: "59002"
+# BuffOverrides.blizzard: ""
+# BuffOverrides.heatwave: "59003, 33"

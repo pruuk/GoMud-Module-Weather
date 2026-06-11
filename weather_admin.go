@@ -1,7 +1,9 @@
 package weather
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 
 	"github.com/GoMudEngine/GoMud/internal/events"
@@ -51,9 +53,10 @@ type AdminZoneRow struct {
 
 // AdminConfigRow is one row of the config table in the snapshot.
 type AdminConfigRow struct {
-	Key   string `json:"key"`
-	Value any    `json:"value"`
-	Badge string `json:"badge"` // "live" or the human reboot/deferred note
+	Key      string `json:"key"`
+	Value    any    `json:"value"`
+	Badge    string `json:"badge"`              // "live" or the human reboot/deferred note
+	ReadOnly bool   `json:"readOnly,omitempty"` // synthetic summary rows; the config API refuses writes
 }
 
 // adminSnapshot is the published snapshot; package-level so handlers can read
@@ -128,6 +131,7 @@ func (m *weatherModule) buildSnapshot() *AdminSnapshot {
 // to do immediately) runs on the game loop after the new config is adopted.
 type configKeyApplier struct {
 	Badge     string
+	ReadOnly  bool // row is display-only; handleAdminConfig rejects writes
 	LiveApply func(m *weatherModule, old Config)
 }
 
@@ -184,13 +188,20 @@ var configKeyMeta = map[string]configKeyApplier{
 			m.loadSeasons() // idempotent; baseline without events
 		}
 	}},
+	// No LiveApply: the new patterns persist and the existing rebuild action
+	// (or 'weather rebuild') picks them up from m.cfg.
+	"ExcludeZonePatterns": {Badge: "applies on next graph rebuild"},
+	// BuffOverrides.<type> are per-type flat keys edited in the overlay file;
+	// the table shows ONE synthetic read-only summary row for all of them.
+	"BuffOverrides.*": {Badge: "takes effect on reboot", ReadOnly: true},
 }
 
 // configRows serializes the config view for the snapshot. Badges come from
 // configKeyMeta — single source of truth; every public key must appear.
-// NOTE: snapshot isolation depends on Config holding ONLY scalar fields — a
-// future slice/map config value would cross into the snapshot by reference
-// through the `any` Value and must be deep-copied here instead.
+// NOTE: snapshot isolation depends on every Value below being a scalar —
+// Config's slice/map fields (ExcludeZonePatterns, BuffOverrides) are rendered
+// to fresh strings here for exactly that reason; a future slice/map value
+// must be deep-copied or stringified the same way.
 func (m *weatherModule) configRows() []AdminConfigRow {
 	c := m.cfg
 	values := map[string]any{
@@ -200,14 +211,36 @@ func (m *weatherModule) configRows() []AdminConfigRow {
 		"SpawnRateScale": c.SpawnRateScale, "EmoteMode": c.EmoteMode,
 		"EmoteEveryRounds": c.EmoteEveryRounds, "BuffsEnabled": c.BuffsEnabled,
 		"Persist": c.Persist, "SeasonsEnabled": c.SeasonsEnabled,
-		"PerRoomRefinement": c.PerRoomRefinement,
+		"PerRoomRefinement":   c.PerRoomRefinement,
+		"ExcludeZonePatterns": strings.Join(c.ExcludeZonePatterns, ","),
+		"BuffOverrides.*":     buffOverridesSummary(c.BuffOverrides),
 	}
 	rows := make([]AdminConfigRow, 0, len(values))
 	for key, val := range values {
-		rows = append(rows, AdminConfigRow{Key: key, Value: val, Badge: configKeyMeta[key].Badge})
+		meta := configKeyMeta[key]
+		rows = append(rows, AdminConfigRow{Key: key, Value: val, Badge: meta.Badge, ReadOnly: meta.ReadOnly})
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].Key < rows[b].Key })
 	return rows
+}
+
+// buffOverridesSummary renders the synthetic BuffOverrides.* row value, e.g.
+// "blizzard→[]; storm→[59002]" ("[]" = explicit strip); "(none)" when no
+// overrides are configured.
+func buffOverridesSummary(overrides map[string][]int) string {
+	if len(overrides) == 0 {
+		return "(none)"
+	}
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s→%v", k, overrides[k]))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // applyConfigChange adopts a freshly re-read config and runs the changed

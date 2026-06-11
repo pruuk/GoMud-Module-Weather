@@ -28,16 +28,43 @@ func (m *weatherModule) startSim(round uint64) {
 	m.simCfg = m.cfg.simConfig()
 	m.loadContent()
 	m.loadSeasons()
-	if !m.cfg.BuffsEnabled {
-		n := engine.StripBuffs()
-		mudlog.Info("Weather: buffs disabled by config", "specsStripped", n)
-	}
+	m.applyBuffConfig()
 	m.loadOrInitState(round)
 	m.applyWeather()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	m.scheduleEmote(round)
 	m.simReady = true
 	m.publishSnapshot()
+}
+
+// Buff-phase seams: the real engine calls mutate the global mutator-spec
+// registry (empty under `go test`); the ordering test swaps these to record
+// the call sequence. Logging lives in the defaults so the test doubles don't
+// touch the engine logger.
+var (
+	applyBuffOverridesFn = func(overrides map[string][]int) int {
+		n := engine.ApplyBuffOverrides(overrides)
+		mudlog.Info("Weather: buff overrides applied", "configured", len(overrides), "specsChanged", n)
+		return n
+	}
+	stripBuffsFn = func() int {
+		n := engine.StripBuffs()
+		mudlog.Info("Weather: buffs disabled by config", "specsStripped", n)
+		return n
+	}
+)
+
+// applyBuffConfig is the boot-time buff phase: per-type overrides first, then
+// the BuffsEnabled=false strip — NEVER the reverse, so disabling buffs always
+// wins, overrides included (spec §3). Both are spec mutations with no restore
+// path short of a reboot (the admin badges say so).
+func (m *weatherModule) applyBuffConfig() {
+	if len(m.cfg.BuffOverrides) > 0 {
+		applyBuffOverridesFn(m.cfg.BuffOverrides)
+	}
+	if !m.cfg.BuffsEnabled {
+		stripBuffsFn()
+	}
 }
 
 // applyWeather is the single switch between zone-scoped and room-scoped

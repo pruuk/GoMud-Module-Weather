@@ -120,6 +120,7 @@ func (m *weatherModule) loadOrBuildGraph() {
 func (m *weatherModule) rebuildGraph() {
 	opts := crawler.DefaultOptions()
 	opts.IncludeSecretExits = m.cfg.IncludeSecretExits
+	opts.ExcludeZonePatterns = m.cfg.ExcludeZonePatterns
 	opts.BuiltAtRound = util.GetRoundCount()
 
 	g, err := crawler.Build(engine.NewWorldReader(), opts)

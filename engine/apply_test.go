@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/GoMudEngine/GoMud/internal/mutators"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
@@ -76,5 +77,45 @@ func TestReconcileList(t *testing.T) {
 	want = []string{"remove:weather-snow"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
+	}
+}
+
+func TestApplyBuffOverrides(t *testing.T) {
+	specs := map[string]*mutators.MutatorSpec{
+		"weather-storm":        {MutatorId: "weather-storm", PlayerBuffIds: []int{59002}, MobBuffIds: []int{4}},
+		"weather-storm-indoor": {MutatorId: "weather-storm-indoor"},
+		"weather-blizzard":     {MutatorId: "weather-blizzard", PlayerBuffIds: []int{59001}},
+	}
+	lookup := func(id string) *mutators.MutatorSpec { return specs[id] }
+
+	// Pre-mark the unknown-type warn so the warn-once path doesn't hit the
+	// engine logger, which is uninitialized under `go test`.
+	warnedOverrides["weather-hail"] = true
+
+	src := map[string][]int{
+		"storm":    {7, 8}, // replace
+		"blizzard": {},     // explicit strip (key present, empty value)
+		"hail":     {1},    // no such spec: ignored (warn-once)
+	}
+	if n := applyBuffOverrides(lookup, src); n != 2 {
+		t.Fatalf("specs changed = %d, want 2", n)
+	}
+	if got := specs["weather-storm"].PlayerBuffIds; !reflect.DeepEqual(got, []int{7, 8}) {
+		t.Errorf("storm PlayerBuffIds = %v, want [7 8]", got)
+	}
+	if got := specs["weather-storm"].MobBuffIds; !reflect.DeepEqual(got, []int{4}) {
+		t.Errorf("storm MobBuffIds must be untouched: %v", got)
+	}
+	if got := specs["weather-blizzard"].PlayerBuffIds; len(got) != 0 {
+		t.Errorf("blizzard buffs not stripped: %v", got)
+	}
+	// Indoor variants are buff-free by rule and never overridden.
+	if got := specs["weather-storm-indoor"].PlayerBuffIds; got != nil {
+		t.Errorf("indoor spec must be untouched: %v", got)
+	}
+	// The spec must not alias the config map's backing array.
+	src["storm"][0] = 99
+	if specs["weather-storm"].PlayerBuffIds[0] != 7 {
+		t.Error("spec PlayerBuffIds aliases the override map")
 	}
 }

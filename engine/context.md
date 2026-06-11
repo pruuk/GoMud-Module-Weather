@@ -52,6 +52,13 @@ module portable across GoMud and DOGMud.
   `warnedMutators`) for missing season specs.
   `StripBuffs()` clears buff id lists on all loaded **`weather-*` and
   `season-*`** specs — covers both namespaces; boot-time only, no restore path.
+  **`ApplyBuffOverrides(map[type][]ids)`** replaces `PlayerBuffIds` on OUTDOOR
+  `weather-<type>` specs (empty list = strip; indoor variants and Mob/Native
+  lists untouched; ids copied, never aliased). Same boot-time spec-mutation
+  mechanism as `StripBuffs`; the module always runs it BEFORE StripBuffs so
+  `BuffsEnabled: false` wins over any override. The core `applyBuffOverrides`
+  takes the registry lookup as a seam for tests; `warnedOverrides` warn-once
+  for entries naming no loaded spec (e.g. "clear").
   `warnedMutators` warn-once map (safe on single goroutine).
 - **calendar.go**: `CalendarShape() (monthsPerYear, daysPerYear int)` — reads
   the active calendar name from `gametime.GetDate().Calendar`, resolves its
@@ -94,7 +101,7 @@ module portable across GoMud and DOGMud.
 - The module root (`weather.go`) uses `NewWorldReader()`, `DecodeCache`/`CacheIdentifier`.
 - The module root (`weather_tick.go`) uses `EncodeState`/`DecodeState`,
   `TickPeriod`/`NextTickRound`/`CurrentRound`, `EmitAmbient`, `StripBuffs`,
-  `CalendarShape`/`CalendarNow` (the seasons glue).
+  `ApplyBuffOverrides`, `CalendarShape`/`CalendarNow` (the seasons glue).
 - The module root (`weather_commands.go`, `weather_api.go`) calls
   `Reconcile`/`CurrentRound` after any state mutation.
 

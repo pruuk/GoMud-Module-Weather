@@ -48,6 +48,11 @@ func (m *weatherModule) handleAdminConfig(r *http.Request) (int, bool, any) {
 	if !ok {
 		return http.StatusBadRequest, false, "unknown config key"
 	}
+	if meta.ReadOnly {
+		// Synthetic summary rows (BuffOverrides.*): edited in the overlay
+		// file, never through this API.
+		return http.StatusBadRequest, false, "read-only config key"
+	}
 	if m.plug == nil { // fabricated test module; live servers always have a plugin
 		return http.StatusServiceUnavailable, false, "plugin not initialised"
 	}

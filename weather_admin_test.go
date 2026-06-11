@@ -68,7 +68,7 @@ func TestBuildSnapshot(t *testing.T) {
 			t.Errorf("key %s missing badge", c.Key)
 		}
 	}
-	for _, want := range []string{"TickEveryGameHours", "SeasonsEnabled", "BuffsEnabled", "Enabled", "Seed", "PerRoomRefinement"} {
+	for _, want := range []string{"TickEveryGameHours", "SeasonsEnabled", "BuffsEnabled", "Enabled", "Seed", "PerRoomRefinement", "ExcludeZonePatterns", "BuffOverrides.*"} {
 		if !seen[want] {
 			t.Errorf("config row for %s missing", want)
 		}
@@ -152,8 +152,8 @@ func TestConfigKeyMetaCoversAllKeys(t *testing.T) {
 			t.Errorf("%s: row badge %q != meta badge %q", row.Key, row.Badge, meta.Badge)
 		}
 	}
-	// Single source for the expected key count (Task 5 bumps this to 15).
-	const wantConfigKeys = 13
+	// Single source for the expected key count.
+	const wantConfigKeys = 15
 	if len(configKeyMeta) != wantConfigKeys {
 		t.Errorf("expected %d config keys, got %d", wantConfigKeys, len(configKeyMeta))
 	}
@@ -215,6 +215,52 @@ func TestConfigHandlerValidation(t *testing.T) {
 	malformed := httptest.NewRequest("POST", "/x", strings.NewReader(`{nope`))
 	if status, _, _ := m.handleAdminConfig(malformed); status != 400 {
 		t.Errorf("malformed body must 400: %d", status)
+	}
+	// The synthetic BuffOverrides.* row is display-only: writes must be
+	// refused here even before the page renders it read-only (Task 6).
+	readOnly := httptest.NewRequest("POST", "/x", strings.NewReader(`{"key":"BuffOverrides.*","value":"59002"}`))
+	if status, success, _ := m.handleAdminConfig(readOnly); status != 400 || success {
+		t.Errorf("read-only key must 400: %d %v", status, success)
+	}
+}
+
+func TestConfigRowsNewKeys(t *testing.T) {
+	m := adminTestModule()
+	rowOf := func(key string) AdminConfigRow {
+		for _, r := range m.configRows() {
+			if r.Key == key {
+				return r
+			}
+		}
+		t.Fatalf("row %s missing", key)
+		return AdminConfigRow{}
+	}
+
+	bo := rowOf("BuffOverrides.*")
+	if !bo.ReadOnly {
+		t.Error("BuffOverrides.* row must be read-only")
+	}
+	if bo.Badge != "takes effect on reboot" {
+		t.Errorf("BuffOverrides.* badge: %q", bo.Badge)
+	}
+	if bo.Value != "(none)" {
+		t.Errorf("no overrides configured: value %v, want (none)", bo.Value)
+	}
+	m.cfg.BuffOverrides = map[string][]int{"storm": {59002}, "blizzard": {}}
+	if v := rowOf("BuffOverrides.*").Value; v != "blizzard→[]; storm→[59002]" {
+		t.Errorf("summary = %v", v)
+	}
+
+	ez := rowOf("ExcludeZonePatterns")
+	if ez.ReadOnly {
+		t.Error("ExcludeZonePatterns must stay editable")
+	}
+	if ez.Badge != "applies on next graph rebuild" {
+		t.Errorf("ExcludeZonePatterns badge: %q", ez.Badge)
+	}
+	// Slice rendered as a fresh string — snapshot isolation (see configRows).
+	if ez.Value != "instance_*,ephemeral_*" {
+		t.Errorf("ExcludeZonePatterns value = %v", ez.Value)
 	}
 }
 

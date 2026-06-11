@@ -43,9 +43,9 @@ type WorldReader interface {
 ## Options
 - `IncludeSecretExits bool`, `ExcludeZonePatterns []string`,
   `BuiltAtRound uint64`. `DefaultOptions()` enables secret exits and excludes
-  `instance_*` / `ephemeral_*`. `IncludeSecretExits` is wired to module config;
-  `ExcludeZonePatterns` is not yet a config key (M4 follow-up) — consumers get
-  the defaults.
+  `instance_*` / `ephemeral_*`. Both `IncludeSecretExits` and
+  `ExcludeZonePatterns` are wired to module config (the latter via the
+  comma-separated `ExcludeZonePatterns` key, M4).
 
 ## Graph semantics consumers should know
 - **Edge weight counts *directed* exits, not connections.** Every room-exit
