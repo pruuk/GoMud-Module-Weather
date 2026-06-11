@@ -53,10 +53,20 @@ func (m *weatherModule) handleAdminConfig(r *http.Request) (int, bool, any) {
 		// file, never through this API.
 		return http.StatusBadRequest, false, "read-only config key"
 	}
+	// Validate mirrors buildConfig's rules but rejects what the loader would
+	// silently default/clamp; the normalized value is what gets persisted.
+	value := body.Value
+	if meta.Validate != nil {
+		norm, err := meta.Validate(body.Value)
+		if err != nil {
+			return http.StatusBadRequest, false, body.Key + ": " + err.Error()
+		}
+		value = norm
+	}
 	if m.plug == nil { // fabricated test module; live servers always have a plugin
 		return http.StatusServiceUnavailable, false, "plugin not initialised"
 	}
-	m.plug.Config.Set(body.Key, body.Value)
+	m.plug.Config.Set(body.Key, value)
 	events.AddToQueue(WeatherConfigChanged{Key: body.Key})
 	return http.StatusOK, true, map[string]any{"key": body.Key, "badge": meta.Badge}
 }

@@ -1,6 +1,7 @@
 package weather
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -221,6 +222,165 @@ func TestConfigHandlerValidation(t *testing.T) {
 	readOnly := httptest.NewRequest("POST", "/x", strings.NewReader(`{"key":"BuffOverrides.*","value":"59002"}`))
 	if status, success, _ := m.handleAdminConfig(readOnly); status != 400 || success {
 		t.Errorf("read-only key must 400: %d %v", status, success)
+	}
+}
+
+// TestConfigHandlerValueValidation: bad values 400 with a useful message;
+// good values pass validation (the fabricated test module has no plugin, so
+// they then hit the 503 plug-nil guard — which proves validation PASSED,
+// since validation runs before that guard).
+func TestConfigHandlerValueValidation(t *testing.T) {
+	m := adminTestModule()
+	cases := []struct {
+		name, key, value string
+		wantStatus       int
+		wantMsgPart      string // for 400s: the message must mention this
+	}{
+		// ints
+		{"bad int", "TickEveryGameHours", "abc", 400, "whole number"},
+		{"int below clamp floor", "TickEveryGameHours", "0", 400, "1 or higher"},
+		{"good int", "TickEveryGameHours", "6", 503, ""},
+		{"negative front budget", "MaxActiveFronts", "-1", 400, "1 or higher"},
+		{"good front budget", "MaxActiveFronts", "12", 503, ""},
+		{"emote cadence below floor", "EmoteEveryRounds", "4", 400, "5 or higher"},
+		{"good emote cadence", "EmoteEveryRounds", "30", 503, ""},
+		{"negative seed", "Seed", "-3", 400, "0 or higher"},
+		{"good seed", "Seed", "0", 503, ""},
+		// floats
+		{"bad float", "SpawnRateScale", "fast", 400, "not a number"},
+		{"negative float", "SpawnRateScale", "-0.1", 400, "0 or higher"},
+		{"good float", "SpawnRateScale", "1.5", 503, ""},
+		// bools (engine bool parsing = strconv.ParseBool)
+		{"bad bool", "BuffsEnabled", "maybe", 400, "boolean"},
+		{"good bool numeric", "BuffsEnabled", "1", 503, ""},
+		{"good bool uppercase", "Enabled", "TRUE", 503, ""},
+		{"bad bool yes", "Persist", "yes", 400, "boolean"},
+		// enums (case-insensitive)
+		{"bad emote mode", "EmoteMode", "loud", 400, "module, tag-only"},
+		{"good emote mode mixed case", "EmoteMode", "Tag-Only", 503, ""},
+		{"bad refinement", "PerRoomRefinement", "sometimes", 400, "occupied, all, off"},
+		{"good refinement uppercase", "PerRoomRefinement", "ALL", 503, ""},
+		// free text stays permissive
+		{"free text", "ExcludeZonePatterns", "instance_*, arena_*", 503, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"key":%q,"value":%q}`, tc.key, tc.value)
+			req := httptest.NewRequest("POST", "/x", strings.NewReader(body))
+			status, success, data := m.handleAdminConfig(req)
+			if status != tc.wantStatus {
+				t.Fatalf("%s=%q: status %d, want %d (data: %v)", tc.key, tc.value, status, tc.wantStatus, data)
+			}
+			if tc.wantStatus == 400 {
+				if success {
+					t.Error("400 must not report success")
+				}
+				msg, _ := data.(string)
+				if !strings.Contains(msg, tc.wantMsgPart) {
+					t.Errorf("message %q should mention %q", msg, tc.wantMsgPart)
+				}
+			}
+		})
+	}
+}
+
+// TestConfigValidatorsNormalize: the value Validate returns is what gets
+// persisted — canonical bools, lowercased enums, trimmed numbers/text.
+func TestConfigValidatorsNormalize(t *testing.T) {
+	cases := []struct{ key, in, want string }{
+		{"BuffsEnabled", "1", "true"},
+		{"Persist", "F", "false"},
+		{"Enabled", "True", "true"},
+		{"EmoteMode", "TAG-ONLY", "tag-only"},
+		{"PerRoomRefinement", " Occupied ", "occupied"},
+		{"TickEveryGameHours", " 6 ", "6"},
+		{"SpawnRateScale", "1.50", "1.5"},
+		{"ExcludeZonePatterns", "  instance_*  ", "instance_*"},
+	}
+	for _, tc := range cases {
+		got, err := configKeyMeta[tc.key].Validate(tc.in)
+		if err != nil {
+			t.Errorf("%s=%q: unexpected error %v", tc.key, tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s=%q: normalized to %q, want %q", tc.key, tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestConfigKindsAndOptions: every key carries the input kind the page needs;
+// enums carry their choices; every writable key validates.
+func TestConfigKindsAndOptions(t *testing.T) {
+	wantKinds := map[string]string{
+		"Enabled": "bool", "IncludeSecretExits": "bool", "RebuildGraphOnBoot": "bool",
+		"BuffsEnabled": "bool", "Persist": "bool", "SeasonsEnabled": "bool",
+		"Seed": "int", "TickEveryGameHours": "int", "MaxActiveFronts": "int",
+		"EmoteEveryRounds": "int", "SpawnRateScale": "float",
+		"EmoteMode": "enum", "PerRoomRefinement": "enum",
+		"ExcludeZonePatterns": "text", "BuffOverrides.*": "text",
+	}
+	m := adminTestModule()
+	for _, row := range m.configRows() {
+		if row.Kind != wantKinds[row.Key] {
+			t.Errorf("%s: kind %q, want %q", row.Key, row.Kind, wantKinds[row.Key])
+		}
+		if row.Kind == "enum" && len(row.Options) == 0 {
+			t.Errorf("%s: enum row without options", row.Key)
+		}
+		if row.Kind != "enum" && len(row.Options) != 0 {
+			t.Errorf("%s: non-enum row carries options %v", row.Key, row.Options)
+		}
+	}
+	if got := strings.Join(configKeyMeta["PerRoomRefinement"].Options, ","); got != "occupied,all,off" {
+		t.Errorf("refinement options: %q", got)
+	}
+	if got := strings.Join(configKeyMeta["EmoteMode"].Options, ","); got != "module,tag-only" {
+		t.Errorf("emote mode options: %q", got)
+	}
+	for key, meta := range configKeyMeta {
+		if !meta.ReadOnly && meta.Validate == nil {
+			t.Errorf("writable key %s has no validator", key)
+		}
+	}
+}
+
+// TestAdminRebuildPublishesOnce guards the single-publish rule for the admin
+// rebuild arm: nothing publishes before/inside rebuildGraph (snapshot pointer
+// generation as proxy), and the arm's single tail publish carries the
+// outcome-derived lastAdminAction.
+func TestAdminRebuildPublishesOnce(t *testing.T) {
+	m := adminTestModule()
+	m.publishSnapshot()
+	before := adminSnapshot.Load()
+
+	var during *AdminSnapshot
+	orig := rebuildGraphFn
+	rebuildGraphFn = func(m *weatherModule) { during = adminSnapshot.Load() } // crawl stub: keep the graph
+	defer func() { rebuildGraphFn = orig }()
+
+	m.applyAdminAction(WeatherAdminAction{Action: "rebuild"})
+
+	if during != before {
+		t.Error("snapshot published before/inside rebuildGraph — attribution would be wrong")
+	}
+	after := adminSnapshot.Load()
+	if after == before {
+		t.Fatal("rebuild action did not publish a snapshot")
+	}
+	if after.LastAction != "graph rebuilt" {
+		t.Errorf("lastAction = %q", after.LastAction)
+	}
+
+	// Failure path publishes too (rebuildGraph kept/lost the graph; arm reports).
+	rebuildGraphFn = func(m *weatherModule) { m.graph = nil }
+	m.applyAdminAction(WeatherAdminAction{Action: "rebuild"})
+	failed := adminSnapshot.Load()
+	if failed == after {
+		t.Fatal("failed rebuild did not publish a snapshot")
+	}
+	if failed.LastAction != "graph rebuild failed (see server log)" {
+		t.Errorf("failure lastAction = %q", failed.LastAction)
 	}
 }
 

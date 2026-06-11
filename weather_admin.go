@@ -3,6 +3,7 @@ package weather
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -53,10 +54,12 @@ type AdminZoneRow struct {
 
 // AdminConfigRow is one row of the config table in the snapshot.
 type AdminConfigRow struct {
-	Key      string `json:"key"`
-	Value    any    `json:"value"`
-	Badge    string `json:"badge"`              // "live" or the human reboot/deferred note
-	ReadOnly bool   `json:"readOnly,omitempty"` // synthetic summary rows; the config API refuses writes
+	Key      string   `json:"key"`
+	Value    any      `json:"value"`
+	Badge    string   `json:"badge"`              // "live" or the human reboot/deferred note
+	Kind     string   `json:"kind"`               // input widget: "bool" | "int" | "float" | "enum" | "text"
+	Options  []string `json:"options,omitempty"`  // enum choices (Kind == "enum")
+	ReadOnly bool     `json:"readOnly,omitempty"` // synthetic summary rows; the config API refuses writes
 }
 
 // adminSnapshot is the published snapshot; package-level so handlers can read
@@ -127,42 +130,118 @@ func (m *weatherModule) buildSnapshot() *AdminSnapshot {
 }
 
 // configKeyApplier is the single source of truth for what saving each key does.
-// Badge text is shown on the page (via configRows); LiveApply (nil = nothing
-// to do immediately) runs on the game loop after the new config is adopted.
+// Badge text is shown on the page (via configRows); Kind/Options drive the
+// page's typed inputs; Validate (nil = free text) rejects bad writes in the
+// API handler; LiveApply (nil = nothing to do immediately) runs on the game
+// loop after the new config is adopted.
 type configKeyApplier struct {
-	Badge     string
-	ReadOnly  bool // row is display-only; handleAdminConfig rejects writes
+	Badge    string
+	Kind     string   // input widget: "bool" | "int" | "float" | "enum" | "text" ("" = text)
+	Options  []string // valid choices when Kind == "enum"
+	ReadOnly bool     // row is display-only; handleAdminConfig rejects writes
+	// Validate mirrors buildConfig's coercion RULES for the key but REJECTS
+	// what the loader would silently default or clamp, so the overlay never
+	// accumulates values the next boot quietly rewrites. Returns the
+	// normalized string to persist (canonical bool, lowercased enum, ...).
+	Validate  func(string) (string, error)
 	LiveApply func(m *weatherModule, old Config)
 }
 
-// configKeyMeta maps each public config key to its apply semantics and badge.
+// Enum choice sets shared by the meta table (page <select> options) and the
+// validators — single source for both.
+var (
+	emoteModeOptions  = []string{EmoteModeModule, EmoteModeTagOnly}
+	refineModeOptions = []string{RefineOccupied, RefineAll, RefineOff}
+)
+
+// validateBool accepts exactly what the engine's config layer accepts when it
+// stores the value (configs.ConfigBool.Set → strconv.ParseBool: true/false,
+// t/f, 1/0, any case), normalized to canonical "true"/"false".
+func validateBool(s string) (string, error) {
+	b, err := strconv.ParseBool(strings.TrimSpace(s))
+	if err != nil {
+		return "", fmt.Errorf("%q is not a boolean (use true/false, t/f or 1/0)", s)
+	}
+	return strconv.FormatBool(b), nil
+}
+
+// validateIntMin parses like buildConfig's intOr but rejects bad input and
+// values below the loader's clamp floor instead of defaulting/clamping.
+func validateIntMin(min int) func(string) (string, error) {
+	return func(s string) (string, error) {
+		n, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			return "", fmt.Errorf("%q is not a whole number", s)
+		}
+		if n < min {
+			return "", fmt.Errorf("%d is out of range (must be %d or higher)", n, min)
+		}
+		return strconv.Itoa(n), nil
+	}
+}
+
+// validateFloatMin is the floatOr counterpart of validateIntMin.
+func validateFloatMin(min float64) func(string) (string, error) {
+	return func(s string) (string, error) {
+		f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			return "", fmt.Errorf("%q is not a number", s)
+		}
+		if f < min {
+			return "", fmt.Errorf("%v is out of range (must be %v or higher)", f, min)
+		}
+		return strconv.FormatFloat(f, 'g', -1, 64), nil
+	}
+}
+
+// validateEnum accepts exactly the listed values, case-insensitively,
+// normalized to the canonical (lowercase) spelling.
+func validateEnum(options []string) func(string) (string, error) {
+	return func(s string) (string, error) {
+		v := strings.ToLower(strings.TrimSpace(s))
+		for _, o := range options {
+			if v == o {
+				return o, nil
+			}
+		}
+		return "", fmt.Errorf("%q is not one of: %s", s, strings.Join(options, ", "))
+	}
+}
+
+// validateFreeText trims and passes anything through — keys whose loader-side
+// parsing is already permissive (comma-separated pattern lists).
+func validateFreeText(s string) (string, error) { return strings.TrimSpace(s), nil }
+
+// configKeyMeta maps each public config key to its apply semantics, badge,
+// input kind and validation.
 var configKeyMeta = map[string]configKeyApplier{
-	"Enabled":            {Badge: "takes effect on reboot"},
-	"IncludeSecretExits": {Badge: "applies on next graph rebuild"},
-	"RebuildGraphOnBoot": {Badge: "boot flag"},
-	"Seed":               {Badge: "applies when state is re-seeded"},
-	"TickEveryGameHours": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+	"Enabled":            {Badge: "takes effect on reboot", Kind: "bool", Validate: validateBool},
+	"IncludeSecretExits": {Badge: "applies on next graph rebuild", Kind: "bool", Validate: validateBool},
+	"RebuildGraphOnBoot": {Badge: "boot flag", Kind: "bool", Validate: validateBool},
+	// Seed 0 = "derive from the world's zone names"; negatives would wrap.
+	"Seed": {Badge: "applies when state is re-seeded", Kind: "int", Validate: validateIntMin(0)},
+	"TickEveryGameHours": {Badge: "live", Kind: "int", Validate: validateIntMin(1), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 		m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	}},
-	"MaxActiveFronts": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+	"MaxActiveFronts": {Badge: "live", Kind: "int", Validate: validateIntMin(1), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 	}},
-	"SpawnRateScale": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+	"SpawnRateScale": {Badge: "live", Kind: "float", Validate: validateFloatMin(0), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 	}},
-	"EmoteMode": {Badge: "live"},
-	"EmoteEveryRounds": {Badge: "live", LiveApply: func(m *weatherModule, _ Config) {
+	"EmoteMode": {Badge: "live", Kind: "enum", Options: emoteModeOptions, Validate: validateEnum(emoteModeOptions)},
+	"EmoteEveryRounds": {Badge: "live", Kind: "int", Validate: validateIntMin(5), LiveApply: func(m *weatherModule, _ Config) {
 		m.scheduleEmote(engine.CurrentRound())
 	}},
-	"BuffsEnabled": {Badge: "live to disable; reboot to re-enable", LiveApply: func(m *weatherModule, old Config) {
+	"BuffsEnabled": {Badge: "live to disable; reboot to re-enable", Kind: "bool", Validate: validateBool, LiveApply: func(m *weatherModule, old Config) {
 		if old.BuffsEnabled && !m.cfg.BuffsEnabled {
 			stripBuffsFn()
 		}
 		// false->true has no live path (no restore) — badge says reboot.
 	}},
-	"Persist": {Badge: "live"},
-	"PerRoomRefinement": {Badge: "live", LiveApply: func(m *weatherModule, old Config) {
+	"Persist": {Badge: "live", Kind: "bool", Validate: validateBool},
+	"PerRoomRefinement": {Badge: "live", Kind: "enum", Options: refineModeOptions, Validate: validateEnum(refineModeOptions), LiveApply: func(m *weatherModule, old Config) {
 		if old.PerRoomRefinement == m.cfg.PerRoomRefinement {
 			return
 		}
@@ -178,7 +257,7 @@ var configKeyMeta = map[string]configKeyApplier{
 		// does StripZoneWeather before refining, so ordering is covered.
 		m.applyWeather()
 	}},
-	"SeasonsEnabled": {Badge: "live", LiveApply: func(m *weatherModule, old Config) {
+	"SeasonsEnabled": {Badge: "live", Kind: "bool", Validate: validateBool, LiveApply: func(m *weatherModule, old Config) {
 		switch {
 		case old.SeasonsEnabled && !m.cfg.SeasonsEnabled:
 			m.seasonsOn = false
@@ -190,10 +269,10 @@ var configKeyMeta = map[string]configKeyApplier{
 	}},
 	// No LiveApply: the new patterns persist and the existing rebuild action
 	// (or 'weather rebuild') picks them up from m.cfg.
-	"ExcludeZonePatterns": {Badge: "applies on next graph rebuild"},
+	"ExcludeZonePatterns": {Badge: "applies on next graph rebuild", Kind: "text", Validate: validateFreeText},
 	// BuffOverrides.<type> are per-type flat keys edited in the overlay file;
 	// the table shows ONE synthetic read-only summary row for all of them.
-	"BuffOverrides.*": {Badge: "takes effect on reboot", ReadOnly: true},
+	"BuffOverrides.*": {Badge: "takes effect on reboot", Kind: "text", ReadOnly: true},
 }
 
 // configRows serializes the config view for the snapshot. Badges come from
@@ -218,7 +297,16 @@ func (m *weatherModule) configRows() []AdminConfigRow {
 	rows := make([]AdminConfigRow, 0, len(values))
 	for key, val := range values {
 		meta := configKeyMeta[key]
-		rows = append(rows, AdminConfigRow{Key: key, Value: val, Badge: meta.Badge, ReadOnly: meta.ReadOnly})
+		kind := meta.Kind
+		if kind == "" {
+			kind = "text"
+		}
+		rows = append(rows, AdminConfigRow{
+			Key: key, Value: val, Badge: meta.Badge, Kind: kind,
+			// Fresh copy per snapshot — same isolation rule as the values above.
+			Options:  append([]string(nil), meta.Options...),
+			ReadOnly: meta.ReadOnly,
+		})
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].Key < rows[b].Key })
 	return rows
@@ -254,6 +342,10 @@ func (m *weatherModule) applyConfigChange(newCfg Config, key string) {
 	m.lastAdminAction = "config " + key + " saved"
 	m.publishSnapshot()
 }
+
+// rebuildGraphFn is a test seam: rebuildGraph crawls the live world and logs
+// through the engine logger, neither of which exists under `go test`.
+var rebuildGraphFn = (*weatherModule).rebuildGraph
 
 // applyAdminAction executes a web-initiated action on the game loop through
 // the same paths as the in-game commands. Refreshes the snapshot.
@@ -297,7 +389,11 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 		m.persistState()
 		m.lastAdminAction = "cleared " + label
 	case "rebuild":
-		m.rebuildGraph()
+		// Single-publish rule: rebuildGraph (and the startSim it may trigger)
+		// never publishes the snapshot itself — the one publish below the
+		// switch runs AFTER lastAdminAction is set, so success and failure
+		// alike surface exactly once, correctly attributed.
+		rebuildGraphFn(m)
 		// Same honesty limit as the in-game command: a failed crawl that kept
 		// the old graph isn't detectable here, but a nil graph is.
 		if m.graph == nil {

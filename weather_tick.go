@@ -22,8 +22,7 @@ func (m *weatherModule) startSim(round uint64) {
 	}
 	if m.graph == nil {
 		mudlog.Warn("Weather: no geography graph; simulation idle (fix the world and run 'weather rebuild')")
-		m.publishSnapshot() // publish "idle" state so the admin page can show it
-		return
+		return // entry point publishes the "idle" snapshot (single-publish rule, see onNewRound)
 	}
 	m.simCfg = m.cfg.simConfig()
 	m.loadContent()
@@ -34,7 +33,9 @@ func (m *weatherModule) startSim(round uint64) {
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	m.scheduleEmote(round)
 	m.simReady = true
-	m.publishSnapshot()
+	// No publishSnapshot here (single-publish rule, see onNewRound): both
+	// callers — the boot startup block and rebuildGraph's entry points —
+	// publish exactly once themselves.
 }
 
 // Buff-phase seams: the real engine calls mutate the global mutator-spec

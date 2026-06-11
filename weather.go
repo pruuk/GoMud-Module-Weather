@@ -86,6 +86,12 @@ func (m *weatherModule) onNewRound(e events.Event) events.ListenerReturn {
 		m.started = true
 		m.loadOrBuildGraph()
 		m.startSim(evt.RoundNumber)
+		// Single-publish rule: rebuildGraph and startSim never publish the
+		// admin snapshot themselves; each game-loop ENTRY POINT (this startup
+		// block, applyAdminAction, the in-game rebuild command, tick,
+		// applyConfigChange) publishes exactly once at its end, after any
+		// lastAdminAction attribution is in place.
+		m.publishSnapshot()
 	}
 	if !m.simReady {
 		return events.Continue
@@ -145,7 +151,10 @@ func (m *weatherModule) rebuildGraph() {
 			engine.ReconcileSeasons(m.graph, m.zoneSeasons)
 		}
 	}
-	m.publishSnapshot()
+	// No publishSnapshot here (single-publish rule, see onNewRound): every
+	// caller — boot startup block, admin rebuild arm, in-game rebuild command
+	// — publishes once itself, on success AND failure paths, which keeps the
+	// admin arm free to set lastAdminAction from the outcome before publishing.
 }
 
 // sendLine writes one line to a user. It is the ONLY place this module calls the

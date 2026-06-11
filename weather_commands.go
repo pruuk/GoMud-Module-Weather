@@ -53,6 +53,10 @@ func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *ro
 		m.printGraphForZone(user, zone)
 	case "rebuild":
 		m.rebuildGraph()
+		// Entry point publishes (single-publish rule, see onNewRound); the
+		// admin page picks up the new graph counters on its next refresh.
+		// lastAdminAction is left alone — it reports admin-PAGE actions.
+		m.publishSnapshot()
 		if m.graph == nil {
 			sendLine(user, "Weather: graph rebuild failed (see server log).")
 			return true, nil
