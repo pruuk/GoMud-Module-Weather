@@ -56,6 +56,7 @@ func init() {
 	// Behavior (not registration) is gated on cfg.Enabled / simReady.
 	module.plug.AddUserCommand(`weather`, module.cmdWeather, false, false)
 	module.registerExports()
+	module.registerAdminWeb()
 }
 
 // onLoad loads config and registers the save hook + NewRound listener. The

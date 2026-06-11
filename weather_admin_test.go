@@ -1,6 +1,7 @@
 package weather
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -153,5 +154,42 @@ func TestApplyConfigChangeSeasonsToggle(t *testing.T) {
 	}
 	if len(m.zoneSeasons) != 0 {
 		t.Error("zone seasons should clear on live disable")
+	}
+}
+
+func TestStatusHandler(t *testing.T) {
+	m := adminTestModule()
+	m.publishSnapshot()
+	status, success, data := m.handleAdminStatus(httptest.NewRequest("GET", "/admin/api/v1/weather/status", nil))
+	if status != 200 || !success {
+		t.Fatalf("status=%d success=%v", status, success)
+	}
+	snap, ok := data.(*AdminSnapshot)
+	if !ok || !snap.SimReady {
+		t.Fatalf("payload: %T %+v", data, data)
+	}
+}
+
+func TestConfigHandlerValidation(t *testing.T) {
+	m := adminTestModule()
+	bad := httptest.NewRequest("POST", "/x", strings.NewReader(`{"key":"NotAKey","value":"1"}`))
+	if status, success, _ := m.handleAdminConfig(bad); status != 400 || success {
+		t.Errorf("unknown key must 400: %d %v", status, success)
+	}
+	malformed := httptest.NewRequest("POST", "/x", strings.NewReader(`{nope`))
+	if status, _, _ := m.handleAdminConfig(malformed); status != 400 {
+		t.Errorf("malformed body must 400: %d", status)
+	}
+}
+
+func TestActionHandlerValidation(t *testing.T) {
+	m := adminTestModule()
+	bad := httptest.NewRequest("POST", "/x", strings.NewReader(`{"action":"explode"}`))
+	if status, success, _ := m.handleAdminAction(bad); status != 400 || success {
+		t.Errorf("unknown action must 400: %d %v", status, success)
+	}
+	missing := httptest.NewRequest("POST", "/x", strings.NewReader(`{"action":"spawn","zone":""}`))
+	if status, _, _ := m.handleAdminAction(missing); status != 400 {
+		t.Errorf("spawn without zone must 400: %d", status)
 	}
 }
