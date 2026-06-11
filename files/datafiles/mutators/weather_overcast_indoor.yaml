@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-overcast-indoor
+descriptionmodifier:
+  behavior: append
+  text: Dimmed gray light filters through every crack and opening.
+  colorpattern: gray
+decayrate: 24 hours

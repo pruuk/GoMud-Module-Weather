@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-snow-indoor
+descriptionmodifier:
+  behavior: append
+  text: Cold radiates through the walls; snow falls thick and silent outside.
+  colorpattern: frost
+decayrate: 24 hours

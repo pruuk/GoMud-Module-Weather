@@ -125,6 +125,7 @@ func TestShippedMutatorSpecs(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("no mutator specs shipped")
 	}
+	allIDs := make(map[string]bool)
 	for _, e := range entries {
 		b, err := os.ReadFile(dir + "/" + e.Name())
 		if err != nil {
@@ -151,8 +152,27 @@ func TestShippedMutatorSpecs(t *testing.T) {
 		if _, has := spec["decayrate"]; !has {
 			t.Errorf("%s: weather mutators must set decayrate (self-heal safety net)", e.Name())
 		}
+		// Indoor variants are sheltered: no light penalty, no buffs, no alert spam.
+		if strings.HasSuffix(id, "-indoor") {
+			for _, forbidden := range []string{"lightmod", "playerbuffids", "mobbuffids", "alertmodifier"} {
+				if _, has := spec[forbidden]; has {
+					t.Errorf("%s: indoor variants must not set %s", e.Name(), forbidden)
+				}
+			}
+		}
+		allIDs[id] = true
 	}
-	if len(entries) < 14 { // 8 weather + 6 season specs
-		t.Errorf("expected at least 14 shipped mutator specs, found %d", len(entries))
+	if len(entries) < 22 { // 8 weather + 8 indoor + 6 season specs
+		t.Errorf("expected at least 22 shipped mutator specs, found %d", len(entries))
+	}
+	// Pairing completeness: every outdoor weather-<type> must have a matching
+	// weather-<type>-indoor so a future 9th weather type can't ship half-finished.
+	for id := range allIDs {
+		if strings.HasPrefix(id, "weather-") && !strings.HasSuffix(id, "-indoor") {
+			indoorID := id + "-indoor"
+			if !allIDs[indoorID] {
+				t.Errorf("outdoor spec %q has no matching indoor variant %q", id, indoorID)
+			}
+		}
 	}
 }

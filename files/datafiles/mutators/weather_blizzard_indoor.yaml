@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-blizzard-indoor
+descriptionmodifier:
+  behavior: append
+  text: The blizzard shrieks past outside; frigid drafts find every crack.
+  colorpattern: frost
+decayrate: 24 hours

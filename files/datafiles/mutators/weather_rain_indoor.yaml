@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-rain-indoor
+descriptionmodifier:
+  behavior: append
+  text: Rain drums on the roof in a steady, muffled rhythm.
+  colorpattern: blue
+decayrate: 24 hours

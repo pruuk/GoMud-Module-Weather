@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-heatwave-indoor
+descriptionmodifier:
+  behavior: append
+  text: The air is thick and stifling, heat pressing in through every wall.
+  colorpattern: embers
+decayrate: 24 hours

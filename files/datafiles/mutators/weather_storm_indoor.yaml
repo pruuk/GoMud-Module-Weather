@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-storm-indoor
+descriptionmodifier:
+  behavior: append
+  text: A storm hammers the world outside; the walls shudder with each peal of thunder.
+  colorpattern: mute-dblue
+decayrate: 24 hours
