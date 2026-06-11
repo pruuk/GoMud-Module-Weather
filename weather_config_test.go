@@ -144,6 +144,11 @@ func TestBuffOverridesGarbageFailsSoft(t *testing.T) {
 	for k := range warnedConfigKeys { // tests share the warn-once memory
 		delete(warnedConfigKeys, k)
 	}
+	t.Cleanup(func() {
+		for k := range warnedConfigKeys {
+			delete(warnedConfigKeys, k)
+		}
+	})
 
 	vals := map[string]any{
 		"BuffOverrides.storm": "59002, zap", // bad token skipped, good ids kept

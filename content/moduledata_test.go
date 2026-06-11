@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 	"gopkg.in/yaml.v2"
 )
 
@@ -289,6 +290,34 @@ func TestShippedMutatorSpecs(t *testing.T) {
 			if !allIDs[indoorID] {
 				t.Errorf("outdoor spec %q has no matching indoor variant %q", id, indoorID)
 			}
+		}
+	}
+
+	// Bidirectional type-list drift guard: the set of shipped outdoor
+	// weather-<type> mutator ids must equal sim.KnownWeatherTypes minus "clear"
+	// — both shipped-but-unlisted AND listed-but-unshipped are failures.
+	// season-* and -indoor ids are excluded from the comparison.
+	knownSet := make(map[string]bool, len(sim.KnownWeatherTypes))
+	for _, wt := range sim.KnownWeatherTypes {
+		if wt == sim.Clear {
+			continue
+		}
+		knownSet["weather-"+string(wt)] = true
+	}
+	shippedOutdoor := make(map[string]bool)
+	for id := range allIDs {
+		if strings.HasPrefix(id, "weather-") && !strings.HasSuffix(id, "-indoor") {
+			shippedOutdoor[id] = true
+		}
+	}
+	for id := range shippedOutdoor {
+		if !knownSet[id] {
+			t.Errorf("shipped outdoor mutator %q is not listed in sim.KnownWeatherTypes", id)
+		}
+	}
+	for id := range knownSet {
+		if !shippedOutdoor[id] {
+			t.Errorf("sim.KnownWeatherTypes entry %q has no shipped outdoor mutator spec", id)
 		}
 	}
 }

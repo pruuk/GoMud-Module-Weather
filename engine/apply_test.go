@@ -91,6 +91,7 @@ func TestApplyBuffOverrides(t *testing.T) {
 	// Pre-mark the unknown-type warn so the warn-once path doesn't hit the
 	// engine logger, which is uninitialized under `go test`.
 	warnedOverrides["weather-hail"] = true
+	t.Cleanup(func() { delete(warnedOverrides, "weather-hail") })
 
 	src := map[string][]int{
 		"storm":    {7, 8}, // replace

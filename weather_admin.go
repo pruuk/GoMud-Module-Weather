@@ -157,7 +157,7 @@ var configKeyMeta = map[string]configKeyApplier{
 	}},
 	"BuffsEnabled": {Badge: "live to disable; reboot to re-enable", LiveApply: func(m *weatherModule, old Config) {
 		if old.BuffsEnabled && !m.cfg.BuffsEnabled {
-			engine.StripBuffs()
+			stripBuffsFn()
 		}
 		// false->true has no live path (no restore) — badge says reboot.
 	}},

@@ -25,4 +25,4 @@ ExcludeZonePatterns: "instance_*,ephemeral_*"
 # ids: 59001 chilled (blizzard), 59002 soaked (storm), 59003 parched (heatwave).
 # BuffOverrides.storm: "59002"
 # BuffOverrides.blizzard: ""
-# BuffOverrides.heatwave: "59003, 33"
+# BuffOverrides.heatwave: "59003, 59001"
