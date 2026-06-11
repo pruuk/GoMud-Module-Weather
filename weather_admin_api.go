@@ -63,12 +63,37 @@ func (m *weatherModule) handleAdminConfig(r *http.Request) (int, bool, any) {
 		}
 		value = norm
 	}
-	if m.plug == nil { // fabricated test module; live servers always have a plugin
+	got, ok := persistConfigFn(m, body.Key, value)
+	if !ok {
 		return http.StatusServiceUnavailable, false, "plugin not initialised"
 	}
-	m.plug.Config.Set(body.Key, value)
+	// Read-back guard: the engine's PluginConfig.Set DISCARDS configs.SetVal's
+	// error (internal/plugins/pluginconfig.go:13), so a rejected write — e.g.
+	// a key the data overlay never registered ("invalid property name") —
+	// looks identical to success. The only honest check is reading the value
+	// back. Get returns the engine-typed value (bool/int/float64/string after
+	// the yaml round-trip) while `value` is the validator's normalized string;
+	// configValuesEqual compares canonical string forms for exactly that
+	// reason (the validators already canonicalized bools, enums and numbers).
+	if !configValuesEqual(got, value) {
+		return http.StatusInternalServerError, false,
+			body.Key + ": the engine rejected this write (key not registered?) — value unchanged"
+	}
 	events.AddToQueue(WeatherConfigChanged{Key: body.Key})
 	return http.StatusOK, true, map[string]any{"key": body.Key, "badge": meta.Badge}
+}
+
+// persistConfigFn writes one validated key through the engine config layer
+// and reads back what the layer now holds (false = no plugin: fabricated test
+// module; live servers always have one). A seam in the module's usual style
+// (mirroring rebuildGraphFn) so handler tests can fake the engine accepting
+// or rejecting the write without a live plugin registry.
+var persistConfigFn = func(m *weatherModule, key, value string) (any, bool) {
+	if m.plug == nil {
+		return nil, false
+	}
+	m.plug.Config.Set(key, value)
+	return m.plug.Config.Get(key), true
 }
 
 // handleAdminAction shape-validates and queues an action for the game loop.

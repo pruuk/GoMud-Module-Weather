@@ -64,6 +64,11 @@ func init() {
 // command map before onLoad). World crawling and sim startup are deferred to
 // the first NewRound (engine-specific onLoad timing vs world load).
 func (m *weatherModule) onLoad() {
+	// The self-heal MUST run before the config read below: if the engine's
+	// overlay merge clobbered the live Modules.weather block this boot (see
+	// healConfigClobber), loadConfig would otherwise adopt code defaults —
+	// including Enabled=true — in place of the operator's settings.
+	m.healConfigClobber()
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
 		// One-off snapshot so the always-registered admin page reports the

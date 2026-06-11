@@ -1,13 +1,18 @@
 package weather
 
 import (
+	"fmt"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
 	"github.com/GoMudEngine/GoMud/modules/weather/crawler"
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
+	"gopkg.in/yaml.v2"
 )
 
 // EmoteModeModule / EmoteModeTagOnly are the two §9.4 delivery modes.
@@ -37,13 +42,15 @@ const (
 )
 
 // Config is the resolved module configuration (keys live under
-// Modules.weather.*). Defaults live HERE, in buildConfig — the shipped
-// data overlay (files/data-overlays/config.yaml) is documentation only and
-// carries no active keys, because the engine's configs.OverlayOverrides
-// REPLACES the world's Modules.weather block instead of merging when the
-// overlay introduces keys the block lacks (it would wipe operator config
-// written by the admin page). Keys are flat (BuffsEnabled, not
-// Buffs.Enabled) because plugin config lookup reads flattened scalar leaves.
+// Modules.weather.*). Defaults live in TWO places kept identical by
+// TestOverlayMatchesCodeDefaults: buildConfig below (defense in depth — a
+// partial or clobbered live config still resolves usable values) and the
+// shipped data overlay (files/data-overlays/config.yaml), whose ACTIVE keys
+// are what registers Modules.weather.* with the engine so configs.SetVal —
+// the admin page's write path — accepts them. The engine's overlay merge is
+// destructive (see healConfigClobber); the module self-heals at boot.
+// Keys are flat (BuffsEnabled, not Buffs.Enabled) because plugin config
+// lookup reads flattened scalar leaves.
 type Config struct {
 	Enabled            bool
 	IncludeSecretExits bool
@@ -294,4 +301,255 @@ func (c Config) simConfig() sim.Config {
 // loadConfig reads the module's live config via the plugin API.
 func loadConfig(p *plugins.Plugin) Config {
 	return buildConfig(func(k string) any { return p.Config.Get(k) })
+}
+
+// ---------------------------------------------------------------------------
+// Boot self-heal for the engine's destructive overlay merge.
+//
+// The trap has two sides (verified in engine source):
+//
+//  1. plugins.Load() feeds the keys of files/data-overlays/config.yaml to
+//     configs.AddOverlayOverrides (internal/configs/configs.go:63) — the ONLY
+//     mechanism that registers Modules.weather.* with the config layer's
+//     key/type lookups. Without active overlay keys, configs.SetVal rejects
+//     every admin-page write ("invalid property name") — silently, because
+//     PluginConfig.Set discards the error (internal/plugins/pluginconfig.go:13).
+//     So the overlay MUST ship active keys.
+//  2. The same call collects the overlay keys MISSING from the operator's
+//     config-overrides.yaml block and hands just those to
+//     Config.OverlayOverrides, which yaml-unmarshals
+//     {Modules:{weather:{<newKeys>}}} into the live Config — REPLACING the
+//     inner Modules["weather"] map wholesale (Modules is map[string]any).
+//     Every operator-set key vanishes from the LIVE config; the file itself
+//     is untouched. This fires exactly on upgrade boots after the operator
+//     ever used the admin page (its SetVal persistence wrote the block, and a
+//     module update that adds an overlay key makes that block incomplete).
+//
+// The cure is SetVal itself (configs.go:329): one successful write of ONE
+// registered key merges that key into the in-memory overrides union — which
+// still holds every operator file value — re-applies the ENTIRE union to the
+// live config, and writes the whole union back to config-overrides.yaml. That
+// single call restores everything the boot clobber wiped AND completes the
+// file's block so future boots have no new keys (the clobber never fires
+// again). healConfigClobber detects the wipe (file value != live value) and
+// performs that one write. It runs in onLoad BEFORE the config read, so an
+// operator's Enabled:false (or any other setting) is honored on the very boot
+// that would otherwise have lost it.
+// ---------------------------------------------------------------------------
+
+// overridesPath mirrors the engine's overridePathNoLock
+// (internal/configs/configs.go:389-395): CONFIG_PATH env var wins, else
+// FilePaths.DataFiles + "/config-overrides.yaml".
+func overridesPath() string {
+	if p := os.Getenv(`CONFIG_PATH`); p != `` {
+		return p
+	}
+	return configs.GetConfig().FilePaths.DataFiles.String() + `/config-overrides.yaml`
+}
+
+// readOverridesFn / infoConfig are seams (module style, mirroring
+// applyBuffOverridesFn): the real heal touches the filesystem, the engine
+// config layer and the engine logger, none of which exist under `go test`.
+var readOverridesFn = func() ([]byte, error) { return os.ReadFile(overridesPath()) }
+var infoConfig = mudlog.Info
+
+// healConfigClobber wires the live plugin into the testable core. Game loop
+// only (onLoad), before loadConfig.
+func (m *weatherModule) healConfigClobber() {
+	healClobberedConfig(
+		readOverridesFn,
+		func(k string) any { return m.plug.Config.Get(k) },
+		func(k, v string) { m.plug.Config.Set(k, v) },
+	)
+}
+
+// healClobberedConfig is the testable core of the boot self-heal (mechanism:
+// see the block comment above). Total by design: any IO/parse failure warns
+// once and returns — it must never block boot; buildConfig's code defaults
+// keep the module functional either way.
+func healClobberedConfig(read func() ([]byte, error), get func(string) any, set func(key, value string)) {
+	raw, err := read()
+	if err != nil {
+		// No file = pristine world: the overlay supplied everything and there
+		// is no operator block the clobber could have wiped.
+		if !os.IsNotExist(err) {
+			warnConfig("Weather: cannot read config-overrides.yaml; skipping config-clobber check", "error", err)
+		}
+		return
+	}
+	block, err := weatherOverridesBlock(raw)
+	if err != nil {
+		warnConfig("Weather: cannot parse config-overrides.yaml; skipping config-clobber check", "error", err)
+		return
+	}
+	if len(block) == 0 {
+		return // no Modules.weather block: nothing the clobber could have wiped
+	}
+
+	flat := map[string]any{}
+	flattenLeaves("", block, flat)
+
+	// Compare every file leaf against the live config. The file keeps its own
+	// key spelling on purpose: the live entry a hand-edited key produced (or
+	// would produce after a restore) uses that same spelling, so file-spelled
+	// lookups are the self-consistent comparison even for non-canonical case.
+	var mismatched []string
+	for k, v := range flat {
+		if !configValuesEqual(v, get(k)) {
+			mismatched = append(mismatched, k)
+		}
+	}
+	if len(mismatched) == 0 {
+		return // steady state: full file block, no clobber this boot
+	}
+	sort.Strings(mismatched) // deterministic heal-key choice + readable logs
+
+	// The boot clobber fired. ONE successful Set of a REGISTERED key restores
+	// the whole union (see block comment), so prefer a mismatched registered
+	// key — the write is then also the fix. If only unregistered keys
+	// mismatch (e.g. BuffOverrides.storm), write any registered key back with
+	// its current correct value (file value if present, else live value): the
+	// value is a no-op, the union re-apply side-effect is the point.
+	healKey, healVal := "", ""
+	for _, k := range mismatched {
+		if registeredConfigKey(k) {
+			healKey, healVal = k, fmt.Sprint(flat[k])
+			break
+		}
+	}
+	if healKey == "" {
+		for _, k := range writableConfigKeys() {
+			if v, ok := flat[k]; ok {
+				healKey, healVal = k, fmt.Sprint(v)
+				break
+			}
+			if v := get(k); v != nil {
+				healKey, healVal = k, fmt.Sprint(v)
+				break
+			}
+		}
+	}
+	if healKey == "" { // unreachable with the shipped overlay; stay total
+		warnConfig("Weather: operator config clobbered but no registered key available to heal through",
+			"mismatched", strings.Join(mismatched, ","))
+		return
+	}
+
+	set(healKey, healVal)
+
+	// Re-verify: the union re-apply should have restored every wiped key,
+	// unregistered ones included (the union holds the whole file block). A
+	// remaining mismatch means the engine rejected the write (engine too
+	// old/new) — fall through; code defaults keep the module functional.
+	stillBad := 0
+	for _, k := range mismatched {
+		if !configValuesEqual(flat[k], get(k)) {
+			stillBad++
+		}
+	}
+	if stillBad > 0 {
+		warnConfig("Weather: config heal write did not take — operator values in config-overrides.yaml are NOT live this boot",
+			"healKey", healKey, "unhealed", stillBad, "mismatched", strings.Join(mismatched, ","))
+		return
+	}
+	infoConfig("Weather: restored operator config after engine overlay clobber",
+		"keysHealed", len(mismatched), "via", healKey)
+}
+
+// weatherOverridesBlock extracts the Modules.weather mapping from the raw
+// overrides file. Both lookups are case-insensitive: yaml.v2 keeps keys
+// verbatim and hand-edited files may use any case (the engine itself
+// normalizes via findFullPathFrom when it round-trips the file).
+func weatherOverridesBlock(raw []byte) (map[string]any, error) {
+	var doc map[string]any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	mods, ok := lookupFold(doc, "Modules")
+	if !ok {
+		return nil, nil
+	}
+	weather, ok := lookupFold(asStringMap(mods), "weather")
+	if !ok {
+		return nil, nil
+	}
+	return asStringMap(weather), nil
+}
+
+// lookupFold is a case-insensitive map lookup (exact match wins).
+func lookupFold(m map[string]any, key string) (any, bool) {
+	if v, ok := m[key]; ok {
+		return v, true
+	}
+	for k, v := range m {
+		if strings.EqualFold(k, key) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+// asStringMap normalizes yaml.v2's nested map[interface{}]interface{} (and
+// pass-through map[string]any) to map[string]any; nil for non-maps.
+func asStringMap(v any) map[string]any {
+	switch m := v.(type) {
+	case map[string]any:
+		return m
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[fmt.Sprint(k)] = val
+		}
+		return out
+	}
+	return nil
+}
+
+// flattenLeaves flattens nested maps to dotted keys (BuffOverrides.storm, …),
+// matching the engine's own configs.Flatten shape that plug.Config.Get reads.
+func flattenLeaves(prefix string, m map[string]any, out map[string]any) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if sub := asStringMap(v); sub != nil {
+			flattenLeaves(key, sub, out)
+			continue
+		}
+		out[key] = v
+	}
+}
+
+// configValuesEqual compares a YAML-typed file value against what the live
+// config holds. The two sides never share a type system — the file carries
+// yaml.v2 scalars, while Get returns whatever the engine's last
+// OverlayOverrides yaml round-trip produced (bool/int/float64/string; e.g.
+// SpawnRateScale 1.0 re-reads as int 1) — so compare canonical string forms.
+// fmt.Sprint prints int 1 and float64 1 both as "1", bools as "true"/"false",
+// and a vanished key (nil) as "<nil>", which never equals a real file value.
+func configValuesEqual(a, b any) bool {
+	return fmt.Sprint(a) == fmt.Sprint(b)
+}
+
+// registeredConfigKey reports whether the engine accepts configs.SetVal for
+// this key — true exactly for the shipped overlay's active keys, which are
+// pinned equal to configKeyMeta's writable keys by
+// TestOverlayMatchesCodeDefaults.
+func registeredConfigKey(k string) bool {
+	meta, ok := configKeyMeta[k]
+	return ok && !meta.ReadOnly
+}
+
+// writableConfigKeys returns the registered key set, sorted (deterministic
+// fallback choice in healClobberedConfig).
+func writableConfigKeys() []string {
+	keys := make([]string, 0, len(configKeyMeta))
+	for k, meta := range configKeyMeta {
+		if !meta.ReadOnly {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }

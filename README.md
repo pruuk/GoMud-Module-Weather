@@ -288,16 +288,21 @@ ambience. Weather wins; seasonal ambience is the quiet voice between fronts.
 
 ## Configuration
 
-All knobs live under `Modules.weather.*`. Defaults live in **code**
-(`buildConfig` in `weather_config.go`) — every key may be omitted, and a fresh
-install boots enabled with the values below. To change a setting, use the
-admin page or add a `Modules: weather:` block to your world's
+All knobs live under `Modules.weather.*`. Every key may be omitted, and a
+fresh install boots enabled with the values below. To change a setting, use
+the admin page or add a `Modules: weather:` block to your world's
 `config-overrides.yaml` (`_datafiles/world/default/config-overrides.yaml`).
-The shipped `files/data-overlays/config.yaml` is **documentation only** — it
-carries no active keys, deliberately: the engine's overlay merge
-(`configs.OverlayOverrides`) *replaces* the world's `Modules.weather` block
-when an overlay introduces keys the block lacks, which would wipe operator
-settings on reboot. The file's header has the full story.
+The shipped `files/data-overlays/config.yaml` carries the defaults as
+**active** keys — that is what registers `Modules.weather.*` with the engine
+so admin-page writes (`configs.SetVal`) are accepted — and `buildConfig` in
+`weather_config.go` restates the same values as code defaults (the two are
+pinned identical by a test). The engine's overlay merge has a known bug — it
+*replaces* the live `Modules.weather` block instead of merging whenever the
+overlay carries a key your `config-overrides.yaml` block lacks (typically the
+first boot after a module update) — and the module **self-heals it at boot**:
+it detects the wipe, restores your values from the untouched file, and logs
+`Weather: restored operator config after engine overlay clobber`. Your
+operator workflow is unchanged; the overlay file's header has the full story.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -796,7 +801,7 @@ content/    pure data-file layer — climate + emote YAML (incl. seasonal)  (no 
 seasons/    pure season resolver — tracks → effective-climate transform   (no engine imports)
 engine/     the engine adapter — the ONLY package calling internal/* world APIs
 weather*.go module root — plugin lifecycle, tick loop, commands, exports
-files/      shipped data: config key reference (doc-only overlay), mutator specs, emote tables, season tracks
+files/      shipped data: config defaults (active overlay; registers the keys), mutator specs, emote tables, season tracks
 ```
 
 Pure packages are tested standalone, no server needed:

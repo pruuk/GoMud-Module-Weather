@@ -1,10 +1,13 @@
 package weather
 
 import (
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/GoMudEngine/GoMud/modules/weather/crawler"
+	"gopkg.in/yaml.v2"
 )
 
 func TestBuildConfig(t *testing.T) {
@@ -28,10 +31,10 @@ func TestBuildConfig(t *testing.T) {
 
 func TestBuildConfigDefaults(t *testing.T) {
 	// A getter with no values: every knob falls back to its code default.
-	// The data overlay ships NO active keys (the engine's OverlayOverrides
-	// would clobber operator config in config-overrides.yaml otherwise), so
-	// these code defaults are the single source of truth and must equal the
-	// values the overlay used to ship — pinned key by key below.
+	// The shipped data overlay restates these values as ACTIVE keys (the
+	// engine only registers keys it sees in an overlay — see the overlay
+	// header and healConfigClobber); TestOverlayMatchesCodeDefaults pins the
+	// two sides equal, and this test pins the code side key by key.
 	cfg := buildConfig(func(string) any { return nil })
 	if !cfg.Enabled {
 		t.Error("Enabled must default TRUE when absent (OOBE: fresh install boots working)")
@@ -291,6 +294,284 @@ func TestBuildConfigClampsFrontBudgetAndSeed(t *testing.T) {
 	}
 	if cfg.Seed != 0 {
 		t.Errorf("negative Seed must clamp to 0 (derive-from-world): %d", cfg.Seed)
+	}
+}
+
+// TestOverlayMatchesCodeDefaults pins the two halves of the engine-trap fix
+// together (see healClobberedConfig's block comment): the shipped overlay's
+// ACTIVE keys are what registers Modules.weather.* for configs.SetVal (the
+// admin write path), and its values double as boot defaults that the engine
+// may apply over a partial operator block — so the active key set must equal
+// configKeyMeta's writable keys and every value must equal buildConfig's code
+// default, or the overlay would silently rewrite operator worlds.
+func TestOverlayMatchesCodeDefaults(t *testing.T) {
+	raw, err := files.ReadFile("files/data-overlays/config.yaml")
+	if err != nil {
+		t.Fatalf("shipped overlay missing: %v", err)
+	}
+	var overlay map[string]any
+	if err := yaml.Unmarshal(raw, &overlay); err != nil {
+		t.Fatalf("shipped overlay unparsable: %v", err)
+	}
+
+	cfg := buildConfig(func(string) any { return nil })
+	want := map[string]any{
+		"Enabled":             cfg.Enabled,
+		"IncludeSecretExits":  cfg.IncludeSecretExits,
+		"RebuildGraphOnBoot":  cfg.RebuildGraphOnBoot,
+		"Seed":                cfg.Seed,
+		"TickEveryGameHours":  cfg.TickEveryGameHours,
+		"MaxActiveFronts":     cfg.MaxActiveFronts,
+		"SpawnRateScale":      cfg.SpawnRateScale,
+		"EmoteMode":           cfg.EmoteMode,
+		"EmoteEveryRounds":    cfg.EmoteEveryRounds,
+		"BuffsEnabled":        cfg.BuffsEnabled,
+		"Persist":             cfg.Persist,
+		"SeasonsEnabled":      cfg.SeasonsEnabled,
+		"PerRoomRefinement":   cfg.PerRoomRefinement,
+		"ExcludeZonePatterns": strings.Join(cfg.ExcludeZonePatterns, ","),
+	}
+
+	// Key set: exactly the writable admin keys, no more, no less. (Per-type
+	// BuffOverrides.* stay commented in the overlay by design — the type set
+	// is open, so they cannot be pre-registered; the admin page shows them
+	// read-only.)
+	for _, k := range writableConfigKeys() {
+		if _, ok := overlay[k]; !ok {
+			t.Errorf("overlay missing active key %s (the engine would reject admin writes to it)", k)
+		}
+		if _, ok := want[k]; !ok {
+			t.Errorf("test value table missing key %s", k)
+		}
+	}
+	for k := range overlay {
+		if !registeredConfigKey(k) {
+			t.Errorf("overlay ships unexpected active key %s (not a writable admin key)", k)
+		}
+	}
+
+	// Values: semantically equal to the code defaults (the overlay carries
+	// yaml types — float 1.0, int 0 — compared via configValuesEqual like the
+	// heal does).
+	for k, w := range want {
+		if got, ok := overlay[k]; ok && !configValuesEqual(got, w) {
+			t.Errorf("overlay %s = %v, code default = %v — keep them identical", k, got, w)
+		}
+	}
+}
+
+// healFixture stubs the heal seams: warn/info capture plus a fake engine
+// config layer whose set() simulates configs.SetVal's union re-apply (one
+// successful write restores EVERY file value into the live config — the exact
+// mechanism the heal rides; see healClobberedConfig).
+type healFixture struct {
+	live   map[string]any // what get() reads (the live config's weather block)
+	union  map[string]any // flat file values SetVal would re-apply on success
+	sets   []string       // recorded writes, "key=value"
+	reject bool           // engine rejects the write (e.g. unregistered key)
+	warns  []string
+	infos  []string
+}
+
+func newHealFixture(t *testing.T) *healFixture {
+	t.Helper()
+	f := &healFixture{live: map[string]any{}, union: map[string]any{}}
+	origWarn, origInfo := warnConfig, infoConfig
+	warnConfig = func(msg string, _ ...any) { f.warns = append(f.warns, msg) }
+	infoConfig = func(msg string, _ ...any) { f.infos = append(f.infos, msg) }
+	t.Cleanup(func() { warnConfig, infoConfig = origWarn, origInfo })
+	return f
+}
+
+func (f *healFixture) get(k string) any { return f.live[k] }
+
+func (f *healFixture) set(k, v string) {
+	f.sets = append(f.sets, k+"="+v)
+	if f.reject {
+		return
+	}
+	for fk, fv := range f.union {
+		f.live[fk] = fv
+	}
+	f.live[k] = v // Sprint-equal to the union value for k when both exist
+}
+
+func readerOf(doc string) func() ([]byte, error) {
+	return func() ([]byte, error) { return []byte(doc), nil }
+}
+
+func TestHealNoOverridesFile(t *testing.T) {
+	f := newHealFixture(t)
+	// Pristine world: the overrides file does not exist. Not an error.
+	healClobberedConfig(func() ([]byte, error) { return nil, os.ErrNotExist }, f.get, f.set)
+	if len(f.sets) != 0 || len(f.warns) != 0 || len(f.infos) != 0 {
+		t.Errorf("missing file must be silent: sets=%v warns=%v infos=%v", f.sets, f.warns, f.infos)
+	}
+}
+
+func TestHealReadErrorWarnsOnce(t *testing.T) {
+	f := newHealFixture(t)
+	healClobberedConfig(func() ([]byte, error) { return nil, os.ErrPermission }, f.get, f.set)
+	if len(f.sets) != 0 || len(f.infos) != 0 {
+		t.Errorf("read error must not write: sets=%v infos=%v", f.sets, f.infos)
+	}
+	if len(f.warns) != 1 {
+		t.Errorf("read error must warn once: %v", f.warns)
+	}
+}
+
+func TestHealParseGarbageWarnsAndReturns(t *testing.T) {
+	f := newHealFixture(t)
+	healClobberedConfig(readerOf("Modules: [unclosed\n\t:"), f.get, f.set)
+	if len(f.sets) != 0 || len(f.infos) != 0 {
+		t.Errorf("garbage must not write: sets=%v infos=%v", f.sets, f.infos)
+	}
+	if len(f.warns) != 1 {
+		t.Errorf("garbage must warn once: %v", f.warns)
+	}
+}
+
+func TestHealNoWeatherBlock(t *testing.T) {
+	f := newHealFixture(t)
+	healClobberedConfig(readerOf("Modules:\n  other:\n    X: 1\nServer:\n  Seed: x\n"), f.get, f.set)
+	if len(f.sets) != 0 || len(f.warns) != 0 || len(f.infos) != 0 {
+		t.Errorf("no weather block must be silent: sets=%v warns=%v infos=%v", f.sets, f.warns, f.infos)
+	}
+}
+
+func TestHealSteadyStateFullMatch(t *testing.T) {
+	// Normal post-heal boots: full file block, every value live. Silent.
+	f := newHealFixture(t)
+	f.live = map[string]any{
+		"Enabled": true, "TickEveryGameHours": 2, "SpawnRateScale": 1, // engine re-read 1.0 as int 1
+		"SeasonsEnabled": false, "EmoteMode": "module",
+	}
+	doc := `
+Modules:
+  weather:
+    Enabled: true
+    TickEveryGameHours: 2
+    SpawnRateScale: 1.0
+    SeasonsEnabled: false
+    EmoteMode: module
+`
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	if len(f.sets) != 0 || len(f.warns) != 0 || len(f.infos) != 0 {
+		t.Errorf("steady state must be silent: sets=%v warns=%v infos=%v", f.sets, f.warns, f.infos)
+	}
+}
+
+func TestHealPartialClobber(t *testing.T) {
+	// The upgrade-boot wipe (smoke scenario A): the operator's partial block
+	// vanished from the live config (gets return nil); the live config holds
+	// only overlay defaults for OTHER keys. One registered write — the first
+	// mismatched registered key in sorted order — restores everything.
+	f := newHealFixture(t)
+	f.live = map[string]any{"MaxActiveFronts": 8, "Persist": true} // overlay-supplied survivors
+	f.union = map[string]any{"Enabled": true, "TickEveryGameHours": 2, "SeasonsEnabled": false}
+	doc := `
+Modules:
+  weather:
+    Enabled: true
+    TickEveryGameHours: 2
+    SeasonsEnabled: false
+`
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	if want := []string{"Enabled=true"}; !reflect.DeepEqual(f.sets, want) {
+		t.Errorf("heal writes = %v, want %v (ONE write of the first mismatched registered key)", f.sets, want)
+	}
+	if len(f.infos) != 1 {
+		t.Fatalf("heal must log success once: infos=%v warns=%v", f.infos, f.warns)
+	}
+	if f.live["TickEveryGameHours"] != 2 || f.live["SeasonsEnabled"] != false {
+		t.Errorf("operator values not restored: %v", f.live)
+	}
+	if len(f.warns) != 0 {
+		t.Errorf("successful heal must not warn: %v", f.warns)
+	}
+}
+
+func TestHealNestedBuffOverridesClobber(t *testing.T) {
+	// Nested map in the file block flattens to the engine's dotted key shape;
+	// the unregistered BuffOverrides.storm mismatch rides along on the
+	// registered TickEveryGameHours write (sorted: "B..." < "T...", but the
+	// heal key must be the first REGISTERED mismatch).
+	f := newHealFixture(t)
+	f.union = map[string]any{"TickEveryGameHours": 4, "BuffOverrides.storm": "59002"}
+	doc := `
+Modules:
+  weather:
+    TickEveryGameHours: 4
+    BuffOverrides:
+      storm: "59002"
+`
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	if want := []string{"TickEveryGameHours=4"}; !reflect.DeepEqual(f.sets, want) {
+		t.Errorf("heal writes = %v, want %v", f.sets, want)
+	}
+	if f.live["BuffOverrides.storm"] != "59002" {
+		t.Errorf("nested override not restored: %v", f.live)
+	}
+	if len(f.infos) != 1 || len(f.warns) != 0 {
+		t.Errorf("infos=%v warns=%v", f.infos, f.warns)
+	}
+}
+
+func TestHealUnregisteredOnlyMismatch(t *testing.T) {
+	// Only an unregistered key mismatches: the heal must still fire — through
+	// a registered key written back with its CURRENT value (live, since the
+	// file lacks it); the value is a no-op, the union re-apply is the point.
+	f := newHealFixture(t)
+	for _, k := range writableConfigKeys() {
+		f.live[k] = "x" // all registered keys present and matching nothing in the file
+	}
+	f.live["BuffsEnabled"] = true
+	f.union = map[string]any{"BuffOverrides.storm": "59002"}
+	doc := `
+Modules:
+  weather:
+    BuffOverrides.storm: "59002"
+`
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	// First sorted writable key is BuffsEnabled; file lacks it -> live value.
+	if want := []string{"BuffsEnabled=true"}; !reflect.DeepEqual(f.sets, want) {
+		t.Errorf("heal writes = %v, want %v", f.sets, want)
+	}
+	if f.live["BuffOverrides.storm"] != "59002" {
+		t.Errorf("override not restored: %v", f.live)
+	}
+	if len(f.infos) != 1 || len(f.warns) != 0 {
+		t.Errorf("infos=%v warns=%v", f.infos, f.warns)
+	}
+}
+
+func TestHealWriteRejectedWarns(t *testing.T) {
+	// Engine too old/new: the Set silently does nothing (PluginConfig.Set
+	// discards errors). Re-verification catches it and warns; never blocks.
+	f := newHealFixture(t)
+	f.reject = true
+	doc := "Modules:\n  weather:\n    TickEveryGameHours: 2\n"
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	if len(f.sets) != 1 {
+		t.Errorf("heal must still attempt the write: %v", f.sets)
+	}
+	if len(f.warns) != 1 || len(f.infos) != 0 {
+		t.Errorf("rejected write must warn, not celebrate: warns=%v infos=%v", f.warns, f.infos)
+	}
+}
+
+func TestHealCaseInsensitiveBlockLookup(t *testing.T) {
+	// Hand-edited files may case Modules/weather differently; leaf keys keep
+	// their own spelling (compared against the live entry they produced).
+	f := newHealFixture(t)
+	f.union = map[string]any{"TickEveryGameHours": 3}
+	doc := "modules:\n  WEATHER:\n    TickEveryGameHours: 3\n"
+	healClobberedConfig(readerOf(doc), f.get, f.set)
+	if want := []string{"TickEveryGameHours=3"}; !reflect.DeepEqual(f.sets, want) {
+		t.Errorf("case-variant block not found: sets=%v", f.sets)
+	}
+	if len(f.infos) != 1 {
+		t.Errorf("infos=%v warns=%v", f.infos, f.warns)
 	}
 }
 

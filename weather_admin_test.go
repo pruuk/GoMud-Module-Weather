@@ -288,6 +288,66 @@ func TestConfigHandlerValueValidation(t *testing.T) {
 	}
 }
 
+// TestConfigHandlerReadBackGuard: the engine's PluginConfig.Set discards
+// configs.SetVal's error, so handleAdminConfig verifies the write by reading
+// the value back (via the persistConfigFn seam). Accepted writes 200 with the
+// engine-typed read-back; rejected or silently-ignored writes 500 and must
+// not report saved.
+func TestConfigHandlerReadBackGuard(t *testing.T) {
+	m := adminTestModule()
+	orig := persistConfigFn
+	defer func() { persistConfigFn = orig }()
+
+	post := func(key, value string) (int, bool, any) {
+		body := fmt.Sprintf(`{"key":%q,"value":%q}`, key, value)
+		return m.handleAdminConfig(httptest.NewRequest("POST", "/x", strings.NewReader(body)))
+	}
+
+	// Engine accepts: read-back returns the ENGINE-typed value (the yaml
+	// round-trip re-types the normalized string), which must compare equal.
+	accepted := map[string]any{
+		"TickEveryGameHours": 3,     // "3" -> int
+		"BuffsEnabled":       false, // "false" -> bool
+		"SpawnRateScale":     1.5,   // "1.5" -> float64
+		"EmoteMode":          "tag-only",
+	}
+	persistConfigFn = func(_ *weatherModule, key, _ string) (any, bool) {
+		return accepted[key], true
+	}
+	for key, value := range map[string]string{
+		"TickEveryGameHours": "3", "BuffsEnabled": "false",
+		"SpawnRateScale": "1.50", "EmoteMode": "TAG-ONLY",
+	} {
+		status, success, data := post(key, value)
+		if status != 200 || !success {
+			t.Errorf("%s=%q: accepted write must 200: %d %v (%v)", key, value, status, success, data)
+		}
+	}
+
+	// Engine rejects (unregistered key -> SetVal error swallowed): read-back
+	// returns nil -> 500, no success.
+	persistConfigFn = func(*weatherModule, string, string) (any, bool) { return nil, true }
+	status, success, data := post("TickEveryGameHours", "3")
+	if status != 500 || success {
+		t.Errorf("rejected write must 500 without success: %d %v", status, success)
+	}
+	if msg, _ := data.(string); !strings.Contains(msg, "engine rejected") {
+		t.Errorf("500 message should say the engine rejected the write: %q", msg)
+	}
+
+	// Engine silently keeps the OLD value: equally a 500 (value unchanged).
+	persistConfigFn = func(*weatherModule, string, string) (any, bool) { return 1, true }
+	if status, success, _ := post("TickEveryGameHours", "3"); status != 500 || success {
+		t.Errorf("unchanged value must 500: %d %v", status, success)
+	}
+
+	// No plugin (fabricated module, default seam): 503, as before.
+	persistConfigFn = orig
+	if status, _, _ := post("TickEveryGameHours", "3"); status != 503 {
+		t.Errorf("nil plugin must 503: %d", status)
+	}
+}
+
 // TestConfigValidatorsNormalize: the value Validate returns is what gets
 // persisted — canonical bools, lowercased enums, trimmed numbers/text.
 func TestConfigValidatorsNormalize(t *testing.T) {

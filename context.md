@@ -12,7 +12,7 @@ single game-loop goroutine — no synchronization needed.
 
 ## Key Components
 - **weather.go**: the `files` embed.FS (`//go:embed files/*` — the
-  documentation-only config overlay plus `datafiles/` mutator specs, buff
+  active-defaults config overlay plus `datafiles/` mutator specs, buff
   specs, and emote tables; the
   engine loads `mutators/*` and `buffs/*` from it via the plugin registry,
   `content` loaders read the rest). `weatherModule` struct (plug, cfg, graph,
@@ -29,7 +29,10 @@ single game-loop goroutine — no synchronization needed.
   `plugins.Load()` harvests the plugin's command map and admin web surface into
   the engine registry BEFORE invoking `onLoad`, so anything registered in `onLoad`
   is lost. Behavior is gated on `cfg.Enabled`/`simReady` in-handler instead.
-  `onLoad`: loads config, then (when enabled) registers `SetOnSave`, the
+  `onLoad`: runs `healConfigClobber` FIRST (the boot self-heal for the
+  engine's overlay clobber — see weather_config.go below; ordering matters,
+  the config read would otherwise adopt defaults over wiped operator values),
+  then loads config, then (when enabled) registers `SetOnSave`, the
   `NewRound` listener, the **`RoomChange` listener** (`onRoomChange`, defined
   in weather_tick.go — refine-on-entry for `occupied` mode), and the two admin
   event listeners (`WeatherAdminAction`, `WeatherConfigChanged`). `onNewRound`:
@@ -181,10 +184,18 @@ single game-loop goroutine — no synchronization needed.
   `ReadOnly` row, and any value its `Validate` func refuses (the error message
   names the key); what it persists is the validator's NORMALIZED value, so the
   overrides file never accumulates values the next boot would quietly rewrite.
+  Persistence goes through the `persistConfigFn` seam (Set + read-back), and
+  the handler then verifies the write actually took: the engine's
+  `PluginConfig.Set` DISCARDS `configs.SetVal`'s error
+  (internal/plugins/pluginconfig.go:13), so a rejected write (e.g. an
+  unregistered key) looks identical to success — the read-back guard compares
+  `Get` against the normalized value (`configValuesEqual`) and answers **500**
+  ("the engine rejected this write") without queueing the changed event.
   `handleAdminAction` shape-validates (spawn needs type + zone) and queues.
   Handlers are **strictly limited** to three touches: (1) `loadSnapshot()` on
-  the atomic pointer (read-only); (2) `m.plug.Config.Set` in
-  `handleAdminConfig` (the engine config layer, which is internally locked); (3)
+  the atomic pointer (read-only); (2) `m.plug.Config.Set`/`Get` via
+  `persistConfigFn` in `handleAdminConfig` (the engine config layer, which is
+  internally locked); (3)
   `events.AddToQueue` in both write handlers (the event queue is thread-safe).
   Handlers never access any other `weatherModule` field.
 - **weather_config.go**: `Config` struct (Enabled, IncludeSecretExits,
@@ -210,19 +221,43 @@ single game-loop goroutine — no synchronization needed.
   minTickEveryGameHours, minMaxActiveFronts, minEmoteEveryRounds,
   minSpawnRateScale) are shared by `buildConfig`'s clamps and the admin
   validators so loader and write-side validation can never drift apart.
-  `buildConfig(getter)` (testable, applies defaults and sanity clamps) is the
-  **single source of config defaults** — `Enabled` defaults TRUE when absent
-  (OOBE), and the shipped data overlay (`files/data-overlays/config.yaml`)
-  carries no active keys, only documentation: the engine's
-  `configs.OverlayOverrides` REPLACES the world's `Modules.weather` block
-  (instead of merging) whenever the overlay introduces a key the block lacks,
-  which would wipe admin-page-persisted operator config on reboot (see the
-  overlay file's header).
+  `buildConfig(getter)` (testable, applies defaults and sanity clamps) carries
+  the **code defaults** — `Enabled` defaults TRUE when absent (OOBE) — and the
+  shipped data overlay (`files/data-overlays/config.yaml`) restates the SAME
+  values as ACTIVE keys (pinned identical by `TestOverlayMatchesCodeDefaults`):
+  active overlay keys are the only thing that registers `Modules.weather.*`
+  with the engine's config layer, without which `configs.SetVal` — the admin
+  page's write path — rejects every write ("invalid property name", an error
+  `PluginConfig.Set` silently discards). The flip side is the engine's overlay
+  clobber: `configs.AddOverlayOverrides` REPLACES the live `Modules.weather`
+  block (instead of merging) whenever the overlay carries a key the operator's
+  `config-overrides.yaml` block lacks — i.e. the first boot after a module
+  update once the admin page ever wrote the block. **`healConfigClobber`**
+  (called from `onLoad` BEFORE the config read) is the boot self-heal:
+  `healClobberedConfig` (testable core; seams `readOverridesFn`/`infoConfig`,
+  plus the injected get/set) reads the operator's `config-overrides.yaml`
+  (path mirrors the engine's `overridePathNoLock`: `CONFIG_PATH` env var, else
+  `FilePaths.DataFiles`), extracts the `Modules.weather` block
+  (case-insensitive), flattens it to dotted keys, and compares each file value
+  against the live config (`configValuesEqual` — canonical-string compare,
+  the two sides never share a type system). Any mismatch means the clobber
+  fired; ONE `plug.Config.Set` of a registered key restores everything,
+  because the engine's `SetVal` re-applies its ENTIRE in-memory overrides
+  union (which still holds the operator's file values) and writes the
+  completed union back to the file, so the clobber never fires again. The heal
+  re-verifies via Get, logs one Info on success
+  ("Weather: restored operator config after engine overlay clobber"), warns
+  and falls through on any IO/parse/verify failure (never blocks boot; code
+  defaults keep the module functional). `registeredConfigKey`/
+  `writableConfigKeys` derive the registered set from `configKeyMeta`.
   `simConfig()` maps module config onto `sim.Config`. `loadConfig(*plugins.Plugin)`.
 
 ## Dependencies
-- `internal/plugins, events, users, mudlog, util, rooms` (engine, plugin infra).
-- `modules/weather/{sim,crawler,engine,content,seasons}`.
+- `internal/plugins, events, users, mudlog, util, rooms, configs` (engine,
+  plugin infra; `configs` only for the overrides-file path in
+  `healConfigClobber`).
+- `modules/weather/{sim,crawler,engine,content,seasons}`; `gopkg.in/yaml.v2`
+  (parsing config-overrides.yaml in the heal — same yaml the engine uses).
 
 ## Threading
 GoMud runs a single game-loop goroutine (MainWorker) for both event listeners
@@ -233,18 +268,26 @@ on the same goroutine. **Designed exception surface — HTTP handlers:**
 `weather_admin_api.go` run on web goroutines outside MainWorker. They are
 permitted to touch exactly three things: the `adminSnapshot` atomic pointer
 (read-only via `loadSnapshot()`), the engine config layer (via
-`m.plug.Config.Set`, which is internally locked), and the engine event queue
+`m.plug.Config.Set`/`Get` through the `persistConfigFn` seam — internally
+locked), and the engine event queue
 (via `events.AddToQueue`, which is thread-safe). Any access to other
 `weatherModule` fields from a handler is a concurrency bug.
 
 ## Build/Testing
 Compiles only inside a GoMud checkout (imports `internal/*`).
 `weather_config_test.go` covers `buildConfig` (defaults, coercion, clamps, the
-refinement-mode and BuffOverrides/ExcludeZonePatterns parsing) and the
-`applyBuffConfig` ordering (overrides before strip, via the seams).
+refinement-mode and BuffOverrides/ExcludeZonePatterns parsing), the
+`applyBuffConfig` ordering (overrides before strip, via the seams), the
+overlay/code-defaults pin (`TestOverlayMatchesCodeDefaults`), and
+`healClobberedConfig` (the `TestHeal*` family: no file, no block, steady
+state, partial clobber, nested BuffOverrides, unregistered-only mismatch,
+parse garbage, rejected write, case-insensitive block lookup — all through
+fabricated YAML and fake get/set; the real proof is the boot smokes).
 `weather_admin_test.go` covers the snapshot builder (incl. the refinement
 fields and isolation), `configKeyMeta` completeness, validators and
-normalization, the handlers' 400 paths, the live appliers (refinement-mode
+normalization, the handlers' 400 paths, the read-back guard
+(`TestConfigHandlerReadBackGuard`: accepted/rejected/silently-unchanged
+writes via the `persistConfigFn` seam), the live appliers (refinement-mode
 transitions, seasons toggle), and the single-publish rule on the rebuild path.
 The registration/command/tick/export paths are verified by the in-checkout
 build and a boot smoke test (first-round build → state persist → reload →
