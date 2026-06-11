@@ -5,4 +5,4 @@ descriptionmodifier:
   behavior: append
   text: The blizzard shrieks past outside; frigid drafts find every crack.
   colorpattern: frost
-decayrate: 24 hours
+decayrate: 2 hours

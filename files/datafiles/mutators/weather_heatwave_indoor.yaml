@@ -3,6 +3,6 @@
 mutatorid: weather-heatwave-indoor
 descriptionmodifier:
   behavior: append
-  text: The air is thick and stifling, heat pressing in through every wall.
+  text: Sweat gathers even at rest; the sluggish air traps the day's heat against the skin.
   colorpattern: embers
-decayrate: 24 hours
+decayrate: 6 hours

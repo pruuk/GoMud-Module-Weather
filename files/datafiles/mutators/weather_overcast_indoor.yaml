@@ -3,6 +3,6 @@
 mutatorid: weather-overcast-indoor
 descriptionmodifier:
   behavior: append
-  text: Dimmed gray light filters through every crack and opening.
+  text: The room is washed in flat gray; outside, the sky is a featureless sheet of cloud.
   colorpattern: gray
-decayrate: 24 hours
+decayrate: 6 hours

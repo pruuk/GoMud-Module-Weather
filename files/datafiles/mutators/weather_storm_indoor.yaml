@@ -5,4 +5,4 @@ descriptionmodifier:
   behavior: append
   text: A storm hammers the world outside; the walls shudder with each peal of thunder.
   colorpattern: mute-dblue
-decayrate: 24 hours
+decayrate: 3 hours

@@ -3,6 +3,6 @@
 mutatorid: weather-dust-indoor
 descriptionmodifier:
   behavior: append
-  text: Fine grit sifts through every gap; the bite of the storm finds you even here.
+  text: Fine grit sifts through every gap; a film of dust settles on every surface.
   colorpattern: brown
-decayrate: 24 hours
+decayrate: 3 hours

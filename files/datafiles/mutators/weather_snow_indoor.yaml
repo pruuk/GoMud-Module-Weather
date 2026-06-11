@@ -5,4 +5,4 @@ descriptionmodifier:
   behavior: append
   text: Cold radiates through the walls; snow falls thick and silent outside.
   colorpattern: frost
-decayrate: 24 hours
+decayrate: 4 hours

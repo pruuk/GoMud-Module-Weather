@@ -5,4 +5,4 @@ descriptionmodifier:
   behavior: append
   text: Rain drums on the roof in a steady, muffled rhythm.
   colorpattern: blue
-decayrate: 24 hours
+decayrate: 4 hours
