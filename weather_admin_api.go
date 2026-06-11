@@ -13,7 +13,7 @@ import (
 // same rule as commands — see context.md).
 func (m *weatherModule) registerAdminWeb() {
 	m.plug.Web.AdminPage(
-		"Weather", "weather", "weather.html",
+		"Weather", "weather", "html/admin/weather.html",
 		true, "Modules", "",
 		"Weather & seasons: config, status and actions",
 		"", nil)
