@@ -8,7 +8,7 @@ import (
 )
 
 // fakeMutatorSet records operations. The live state lives in the `current`
-// slice the caller passes to reconcileZone, so the fake needs no state of its
+// slice the caller passes to reconcileList, so the fake needs no state of its
 // own.
 type fakeMutatorSet struct {
 	ops []string
@@ -46,17 +46,17 @@ func TestReconcileSeasonZone(t *testing.T) {
 	// Same core as weather: stale season swapped for the current one,
 	// weather-* ids untouched because the caller gathers season-* only.
 	f := newFake()
-	reconcileZone(f, []string{"season-temperate-autumn"}, SeasonMutatorId("temperate", "winter"))
+	reconcileList(f, []string{"season-temperate-autumn"}, SeasonMutatorId("temperate", "winter"))
 	want := []string{"remove:season-temperate-autumn", "add:season-temperate-winter"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
 	}
 }
 
-func TestReconcileZone(t *testing.T) {
+func TestReconcileList(t *testing.T) {
 	// Stale storm + stray fog live; target is rain.
 	f := newFake()
-	reconcileZone(f, []string{"weather-storm", "weather-fog"}, MutatorIdFor("rain"))
+	reconcileList(f, []string{"weather-storm", "weather-fog"}, MutatorIdFor("rain"))
 	want := []string{"remove:weather-storm", "remove:weather-fog", "add:weather-rain"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
@@ -64,7 +64,7 @@ func TestReconcileZone(t *testing.T) {
 
 	// Target already live: only the stray is removed.
 	f = newFake()
-	reconcileZone(f, []string{"weather-rain", "weather-fog"}, MutatorIdFor("rain"))
+	reconcileList(f, []string{"weather-rain", "weather-fog"}, MutatorIdFor("rain"))
 	want = []string{"remove:weather-fog"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
@@ -72,7 +72,7 @@ func TestReconcileZone(t *testing.T) {
 
 	// Calm target: everything weather-* goes.
 	f = newFake()
-	reconcileZone(f, []string{"weather-snow"}, MutatorIdFor(sim.Clear))
+	reconcileList(f, []string{"weather-snow"}, MutatorIdFor(sim.Clear))
 	want = []string{"remove:weather-snow"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)

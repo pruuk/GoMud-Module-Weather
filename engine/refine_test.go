@@ -27,9 +27,12 @@ func TestRoomWantId(t *testing.T) {
 }
 
 func TestRefineRoomList(t *testing.T) {
+	// Tests the composition RefineRoom uses in production:
+	// reconcileList(ms, current, roomWantId(w, indoor)).
+
 	// Outdoor room moving storm -> rain (stale storm stripped, rain added).
 	f := newFake()
-	refineRoomList(f, []string{"weather-storm"}, "rain", false)
+	reconcileList(f, []string{"weather-storm"}, roomWantId("rain", false))
 	want := []string{"remove:weather-storm", "add:weather-rain"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
@@ -37,7 +40,7 @@ func TestRefineRoomList(t *testing.T) {
 
 	// Indoor room with a stale OUTDOOR id heals to the indoor variant.
 	f = newFake()
-	refineRoomList(f, []string{"weather-rain"}, "rain", true)
+	reconcileList(f, []string{"weather-rain"}, roomWantId("rain", true))
 	want = []string{"remove:weather-rain", "add:weather-rain-indoor"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
@@ -45,9 +48,26 @@ func TestRefineRoomList(t *testing.T) {
 
 	// Clear strips everything.
 	f = newFake()
-	refineRoomList(f, []string{"weather-rain-indoor"}, sim.Clear, true)
+	reconcileList(f, []string{"weather-rain-indoor"}, roomWantId(sim.Clear, true))
 	want = []string{"remove:weather-rain-indoor"}
 	if !reflect.DeepEqual(f.ops, want) {
 		t.Errorf("ops = %v, want %v", f.ops, want)
+	}
+
+	// Steady state, outdoor: the mutator is already correct -> ZERO ops.
+	// Re-add would reset spawn timing and re-fire the entry message every
+	// tick a player stands in the room. The fake never appends, so ops
+	// stays nil; len covers nil and empty alike.
+	f = newFake()
+	reconcileList(f, []string{"weather-rain"}, roomWantId("rain", false))
+	if len(f.ops) != 0 {
+		t.Errorf("steady-state outdoor: ops = %v, want none", f.ops)
+	}
+
+	// Steady state, indoor twin.
+	f = newFake()
+	reconcileList(f, []string{"weather-rain-indoor"}, roomWantId("rain", true))
+	if len(f.ops) != 0 {
+		t.Errorf("steady-state indoor: ops = %v, want none", f.ops)
 	}
 }

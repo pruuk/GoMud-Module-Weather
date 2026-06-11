@@ -30,7 +30,7 @@ func MutatorIdFor(w sim.WeatherType) string {
 	return WeatherMutatorPrefix + string(w)
 }
 
-// reconcileZone forces one mutator list's ids WITHIN ONE NAMESPACE to exactly
+// reconcileList forces one mutator list's ids WITHIN ONE NAMESPACE to exactly
 // match want: every id in current except want is removed; want is added if
 // absent ("" = remove all). current must hold only ids from the same
 // namespace (the caller gathers by prefix). Returns false when the want spec
@@ -38,7 +38,7 @@ func MutatorIdFor(w sim.WeatherType) string {
 // carry decayintoid: the engine's Remove resets SpawnedRound and runs Update,
 // whose decay branch would instantly resurrect the entry as the decay target
 // (a shipped-data test enforces this).
-func reconcileZone(ms mutatorSet, current []string, want string) bool {
+func reconcileList(ms mutatorSet, current []string, want string) bool {
 	hasWant := false
 	for _, id := range current {
 		if id == want {
@@ -102,7 +102,7 @@ func ReconcileSeasons(g *sim.Graph, zoneSeasons map[sim.ZoneId]seasons.ZoneSeaso
 		if len(current) == 0 && want == "" {
 			continue
 		}
-		if !reconcileZone(&zc.Mutators, current, want) {
+		if !reconcileList(&zc.Mutators, current, want) {
 			warnUnknownSeasonMutator(want)
 		}
 	}
@@ -129,7 +129,7 @@ func Reconcile(weather map[sim.ZoneId]sim.WeatherType) {
 			continue
 		}
 		want := MutatorIdFor(w)
-		if !reconcileZone(&zc.Mutators, weatherIds(&zc.Mutators), want) {
+		if !reconcileList(&zc.Mutators, weatherIds(&zc.Mutators), want) {
 			warnUnknownMutatorId(want)
 		}
 	}

@@ -29,12 +29,6 @@ func roomWantId(w sim.WeatherType, indoor bool) string {
 	return base
 }
 
-// refineRoomList is the testable core: forces one room's weather-* ids to
-// exactly the wanted variant.
-func refineRoomList(ms mutatorSet, current []string, w sim.WeatherType, indoor bool) bool {
-	return reconcileZone(ms, current, roomWantId(w, indoor))
-}
-
 // RefineRoom reconciles one live room to the current weather map. Unknown
 // rooms are skipped; unknown variant specs warn once. Game loop only.
 func RefineRoom(roomId int, weather map[sim.ZoneId]sim.WeatherType) {
@@ -48,12 +42,13 @@ func RefineRoom(roomId int, weather map[sim.ZoneId]sim.WeatherType) {
 		biomeId = b.BiomeId
 	}
 	indoor := !isOutdoorBiome(biomeId)
+	want := roomWantId(w, indoor)
 	current := weatherIds(&room.Mutators)
-	if len(current) == 0 && roomWantId(w, indoor) == "" {
+	if len(current) == 0 && want == "" {
 		return
 	}
-	if !refineRoomList(&room.Mutators, current, w, indoor) {
-		warnUnknownMutatorId(roomWantId(w, indoor)) // variant spec missing
+	if !reconcileList(&room.Mutators, current, want) {
+		warnUnknownMutatorId(want) // variant spec missing
 	}
 }
 
@@ -71,7 +66,7 @@ func StripRoomWeather(roomId int) {
 		return
 	}
 	if current := weatherIds(&room.Mutators); len(current) > 0 {
-		reconcileZone(&room.Mutators, current, "")
+		reconcileList(&room.Mutators, current, "")
 	}
 }
 
@@ -85,7 +80,7 @@ func StripZoneWeather(g *sim.Graph) {
 			continue
 		}
 		if current := weatherIds(&zc.Mutators); len(current) > 0 {
-			reconcileZone(&zc.Mutators, current, "")
+			reconcileList(&zc.Mutators, current, "")
 		}
 	}
 }
