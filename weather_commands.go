@@ -162,6 +162,10 @@ func (m *weatherModule) cmdSpawn(user *users.UserRecord, parts []string) {
 	m.state = next
 	m.applyWeather()
 	m.persistState()
+	// Entry point publishes (single-publish rule, see onNewRound); the
+	// admin page picks up the new front on its next refresh.
+	// lastAdminAction is left alone — it reports admin-PAGE actions.
+	m.publishSnapshot()
 	f := m.state.Fronts[len(m.state.Fronts)-1]
 	sendLine(user, fmt.Sprintf("Spawned front #%d: %s @ %s, intensity %.2f.", f.Id, f.Type, f.Zone, f.Intensity))
 }
@@ -186,6 +190,10 @@ func (m *weatherModule) cmdClear(user *users.UserRecord, parts []string) {
 	m.state = next
 	m.applyWeather()
 	m.persistState()
+	// Entry point publishes (single-publish rule, see onNewRound); the
+	// admin page picks up the cleared state on its next refresh.
+	// lastAdminAction is left alone — it reports admin-PAGE actions.
+	m.publishSnapshot()
 	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s).", before-len(m.state.Fronts), len(diff.Changes)))
 }
 
