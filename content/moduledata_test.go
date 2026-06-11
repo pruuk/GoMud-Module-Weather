@@ -29,9 +29,36 @@ func fileNameFor(id string) string {
 	return string(s[:pos]) + ".yaml"
 }
 
+// knownBiomes is the canonical biome-id set for shipped data: the keys of
+// sim.DefaultClimate() (the module ships no climate override files, so the
+// defaults ARE the canonical set), plus the "default" fallback key. A biome
+// key outside this set would be silently unreachable — rooms never report it.
+func knownBiomes() map[string]bool {
+	known := map[string]bool{"default": true}
+	for biome := range sim.DefaultClimate() {
+		known[biome] = true
+	}
+	return known
+}
+
+// checkBiomeKeys fails for any section key that is not a known biome id and
+// for any biome entry with no lines.
+func checkBiomeKeys(t *testing.T, file, section string, m map[string][]string, known map[string]bool) {
+	t.Helper()
+	for biome, lines := range m {
+		if !known[biome] {
+			t.Errorf("%s: %s biome key %q is not a sim.DefaultClimate biome (unreachable variant)", file, section, biome)
+		}
+		if len(lines) == 0 {
+			t.Errorf("%s: %s biome %q has no lines", file, section, biome)
+		}
+	}
+}
+
 // TestShippedEmoteTables validates the default emote tables: parseable, the
-// weather key matches the filename stem, and every type has at least one
-// outdoor-default and one indoor-default line.
+// weather key matches the filename stem, every type has at least one
+// outdoor-default and one indoor-default line, and every biome variant key
+// (base and seasonal) is a real sim.DefaultClimate biome id.
 func TestShippedEmoteTables(t *testing.T) {
 	dir := "../files/datafiles/emotes"
 	entries, err := os.ReadDir(dir)
@@ -63,6 +90,9 @@ func TestShippedEmoteTables(t *testing.T) {
 		if len(table.Indoor["default"]) == 0 {
 			t.Errorf("%s: needs at least one indoor default line", e.Name())
 		}
+		known := knownBiomes()
+		checkBiomeKeys(t, e.Name(), "outdoor", table.Outdoor, known)
+		checkBiomeKeys(t, e.Name(), "indoor", table.Indoor, known)
 		// Seasonal variant keys must be seasons of a shipped track, and every
 		// variant needs at least one line somewhere.
 		shippedSeasons := map[string]bool{"winter": true, "spring": true, "summer": true,
@@ -74,6 +104,8 @@ func TestShippedEmoteTables(t *testing.T) {
 			if len(sec.Outdoor) == 0 && len(sec.Indoor) == 0 {
 				t.Errorf("%s: seasonal variant %q is empty", e.Name(), season)
 			}
+			checkBiomeKeys(t, e.Name(), "seasonal/"+season+"/outdoor", sec.Outdoor, known)
+			checkBiomeKeys(t, e.Name(), "seasonal/"+season+"/indoor", sec.Indoor, known)
 		}
 	}
 }
@@ -103,6 +135,9 @@ func TestShippedSeasonalAmbience(t *testing.T) {
 		if len(sec.Outdoor["default"]) == 0 || len(sec.Indoor["default"]) == 0 {
 			t.Errorf("%v: needs outdoor and indoor default lines", k)
 		}
+		file := k.Track + "_" + k.Season + ".yaml"
+		checkBiomeKeys(t, file, "outdoor", sec.Outdoor, knownBiomes())
+		checkBiomeKeys(t, file, "indoor", sec.Indoor, knownBiomes())
 	}
 	entries, _ := os.ReadDir("../files/datafiles/emotes/seasons")
 	for _, e := range entries {

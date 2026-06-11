@@ -3,6 +3,10 @@ outdoor:
   default:
     - "Heat radiates up from the ground in shimmering waves."
     - "The air is thick and stifling; sweat beads instantly."
+  desert:
+    - "On the horizon, false water shimmers and retreats, never any closer."
+  farmland:
+    - "The crop rows droop in the white glare; the air above the fields swims."
 indoor:
   default:
     - "The trapped air is stiflingly hot and utterly still."
