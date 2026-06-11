@@ -18,7 +18,15 @@ making every run exactly reproducible from a seed.
   `uint64` cursor (`State.RNGState`).
 - **weather.go**: core value types — `WeatherType` (open, data-driven; `Clear`
   is the calm baseline), `ZoneId` (= `string`), `FrontId`, `Front`, `State`,
-  `Clock`, `ZoneChange`, `StateDiff`; `clamp01`.
+  `Clock`, `ZoneChange`, `StateDiff`; `clamp01`. **`KnownWeatherTypes`** (M4):
+  the canonical list of weather types the module ships content for — `Clear`
+  plus the eight mutator-backed types. `WeatherType` stays open (climate data
+  may introduce more), but per-type config surfaces enumerate exactly this
+  list (the root's `buffOverrides` probes `BuffOverrides.<type>` for each
+  entry). Two tests pin it: `TestKnownWeatherTypesCoverDefaultClimate` (every
+  weight in every `DefaultClimate` profile is a known type) and the content
+  package's bidirectional drift guard (shipped outdoor mutator specs ⇔ the
+  list minus `clear`).
 - **climate.go**: `ClimateProfile`/`WeatherInfluence`/`Climate` (biome →
   weather weights, terrain influence, spawn weight); `Climate.For` (falls back
   to the `"default"` profile); `DefaultClimate()` (built-in profiles for the
@@ -156,7 +164,9 @@ Standard library only (`encoding/json`, `sort`, `strings`). No engine imports
 ## Consumers
 - `crawler.Build` produces the `*Graph`; `engine.DecodeCache` round-trips it.
 - The module root drives `Step` from the weather tick and feeds
-  `State.Weather` to `engine.Reconcile`; commands/exports call `Covering`,
+  `State.Weather` to the engine adapter — zone-wide `engine.Reconcile` or the
+  per-room `engine.RefineRoom` paths, depending on the `PerRoomRefinement`
+  mode; commands/exports call `Covering`,
   `ForceSpawn`, `ClearZones`, `NewState`, `DeriveSeed`, `FindZone`.
 - `content.LoadClimate` returns a `Climate`; `engine.EmitAmbient` reads
   `State.Weather`.
@@ -166,7 +176,8 @@ Standard library only (`encoding/json`, `sort`, `strings`). No engine imports
   unknown/isolated zones, post-decode rebuild), `FindZone`.
 - `rng_test.go`: determinism, cursor round-trip, ranges.
 - `weather_test.go`: `clamp01`.
-- `climate_test.go`: profile fallback, defaults.
+- `climate_test.go`: profile fallback, defaults, and
+  `TestKnownWeatherTypesCoverDefaultClimate` (the `KnownWeatherTypes` pin).
 - `tick_test.go`: per-behavior tests (feedback, movement resistance, type
   evolution, death, budget, coverage), golden trace, full-state determinism,
   storm-dies-crossing-mountains feedback scenario.
