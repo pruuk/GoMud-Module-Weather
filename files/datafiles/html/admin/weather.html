@@ -236,7 +236,9 @@
     // without reboot → green; everything else (reboot/deferred) → gray.
     function badgeClass(badge) {
         const b = String(badge || '').toLowerCase();
-        const live = b.indexOf('live') !== -1, reboot = b.indexOf('reboot') !== -1;
+        // Word-boundary match: a bare substring test would let e.g. "lively"
+        // count as live or "reboots" miss vs match inconsistently.
+        const live = /\blive\b/.test(b), reboot = /\breboot\b/.test(b);
         if (live && reboot) return 'amber';
         if (live) return 'green';
         return 'gray';
@@ -251,8 +253,13 @@
                 (v === 'true' ? ' checked' : '') + ' />';
         }
         if (r.kind === 'enum') {
+            // If the current value isn't among the options (stale snapshot,
+            // hand-edited overlay), append it rather than letting the select
+            // silently snap to the first option.
+            const opts = (r.options || []).slice();
+            if (v && opts.indexOf(v) === -1) opts.push(v);
             return '<select class="cfg-input" id="' + escAttr(id) + '">' +
-                (r.options || []).map(o =>
+                opts.map(o =>
                     '<option value="' + escAttr(o) + '"' + (o === v ? ' selected' : '') + '>' +
                         escHtml(o) + '</option>'
                 ).join('') + '</select>';
@@ -341,7 +348,8 @@
     }
 
     function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-    function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    // & first, like escHtml — escaping it later would double-escape the others.
+    function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     fetchStatus();
     setInterval(fetchStatus, 5000);

@@ -75,6 +75,12 @@ func loadSnapshot() *AdminSnapshot {
 }
 
 // publishSnapshot rebuilds and atomically publishes the snapshot. Game loop only.
+//
+// Single-publish rule (canonical statement): helpers that mutate state on a
+// caller's behalf (rebuildGraph, startSim, ...) never call this; every
+// game-loop ENTRY POINT that mutates snapshot-visible state calls it exactly
+// once, at its end, after any lastAdminAction attribution is in place — so
+// success and failure alike surface exactly once, correctly attributed.
 func (m *weatherModule) publishSnapshot() {
 	s := m.buildSnapshot()
 	adminSnapshot.Store(s)
@@ -219,19 +225,19 @@ var configKeyMeta = map[string]configKeyApplier{
 	"IncludeSecretExits": {Badge: "applies on next graph rebuild", Kind: "bool", Validate: validateBool},
 	"RebuildGraphOnBoot": {Badge: "boot flag", Kind: "bool", Validate: validateBool},
 	// Seed 0 = "derive from the world's zone names"; negatives would wrap.
-	"Seed": {Badge: "applies when state is re-seeded", Kind: "int", Validate: validateIntMin(0)},
-	"TickEveryGameHours": {Badge: "live", Kind: "int", Validate: validateIntMin(1), LiveApply: func(m *weatherModule, _ Config) {
+	"Seed": {Badge: "applies when state is re-seeded", Kind: "int", Validate: validateIntMin(minSeed)},
+	"TickEveryGameHours": {Badge: "live", Kind: "int", Validate: validateIntMin(minTickEveryGameHours), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 		m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	}},
-	"MaxActiveFronts": {Badge: "live", Kind: "int", Validate: validateIntMin(1), LiveApply: func(m *weatherModule, _ Config) {
+	"MaxActiveFronts": {Badge: "live", Kind: "int", Validate: validateIntMin(minMaxActiveFronts), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 	}},
-	"SpawnRateScale": {Badge: "live", Kind: "float", Validate: validateFloatMin(0), LiveApply: func(m *weatherModule, _ Config) {
+	"SpawnRateScale": {Badge: "live", Kind: "float", Validate: validateFloatMin(minSpawnRateScale), LiveApply: func(m *weatherModule, _ Config) {
 		m.simCfg = m.cfg.simConfig()
 	}},
 	"EmoteMode": {Badge: "live", Kind: "enum", Options: emoteModeOptions, Validate: validateEnum(emoteModeOptions)},
-	"EmoteEveryRounds": {Badge: "live", Kind: "int", Validate: validateIntMin(5), LiveApply: func(m *weatherModule, _ Config) {
+	"EmoteEveryRounds": {Badge: "live", Kind: "int", Validate: validateIntMin(minEmoteEveryRounds), LiveApply: func(m *weatherModule, _ Config) {
 		m.scheduleEmote(engine.CurrentRound())
 	}},
 	"BuffsEnabled": {Badge: "live to disable; reboot to re-enable", Kind: "bool", Validate: validateBool, LiveApply: func(m *weatherModule, old Config) {
@@ -340,7 +346,7 @@ func (m *weatherModule) applyConfigChange(newCfg Config, key string) {
 		meta.LiveApply(m, old)
 	}
 	m.lastAdminAction = "config " + key + " saved"
-	m.publishSnapshot()
+	m.publishSnapshot() // single-publish rule: see publishSnapshot
 }
 
 // rebuildGraphFn is a test seam: rebuildGraph crawls the live world and logs
@@ -389,10 +395,8 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 		m.persistState()
 		m.lastAdminAction = "cleared " + label
 	case "rebuild":
-		// Single-publish rule: rebuildGraph (and the startSim it may trigger)
-		// never publishes the snapshot itself — the one publish below the
-		// switch runs AFTER lastAdminAction is set, so success and failure
-		// alike surface exactly once, correctly attributed.
+		// Single-publish rule: see publishSnapshot (the one publish below the
+		// switch runs after lastAdminAction is set).
 		rebuildGraphFn(m)
 		// Same honesty limit as the in-game command: a failed crawl that kept
 		// the old graph isn't detectable here, but a nil graph is.
@@ -404,7 +408,7 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 	default:
 		m.lastAdminAction = "unknown action " + a.Action
 	}
-	m.publishSnapshot()
+	m.publishSnapshot() // single-publish rule: see publishSnapshot
 }
 
 // onAdminAction / onConfigChanged run on the game loop (MainWorker) — the

@@ -3,6 +3,7 @@ package weather
 import (
 	"fmt"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -236,13 +237,16 @@ func TestConfigHandlerValueValidation(t *testing.T) {
 		wantStatus       int
 		wantMsgPart      string // for 400s: the message must mention this
 	}{
-		// ints
+		// ints (floors are the shared min* constants from weather_config.go,
+		// so these cases track the loader's clamp block by construction)
 		{"bad int", "TickEveryGameHours", "abc", 400, "whole number"},
-		{"int below clamp floor", "TickEveryGameHours", "0", 400, "1 or higher"},
+		{"int below clamp floor", "TickEveryGameHours", strconv.Itoa(minTickEveryGameHours - 1), 400, fmt.Sprintf("%d or higher", minTickEveryGameHours)},
+		{"int at exact clamp floor", "TickEveryGameHours", strconv.Itoa(minTickEveryGameHours), 503, ""},
 		{"good int", "TickEveryGameHours", "6", 503, ""},
-		{"negative front budget", "MaxActiveFronts", "-1", 400, "1 or higher"},
+		{"negative front budget", "MaxActiveFronts", "-1", 400, fmt.Sprintf("%d or higher", minMaxActiveFronts)},
 		{"good front budget", "MaxActiveFronts", "12", 503, ""},
-		{"emote cadence below floor", "EmoteEveryRounds", "4", 400, "5 or higher"},
+		{"emote cadence below floor", "EmoteEveryRounds", strconv.Itoa(minEmoteEveryRounds - 1), 400, fmt.Sprintf("%d or higher", minEmoteEveryRounds)},
+		{"emote cadence at exact floor", "EmoteEveryRounds", strconv.Itoa(minEmoteEveryRounds), 503, ""},
 		{"good emote cadence", "EmoteEveryRounds", "30", 503, ""},
 		{"negative seed", "Seed", "-3", 400, "0 or higher"},
 		{"good seed", "Seed", "0", 503, ""},

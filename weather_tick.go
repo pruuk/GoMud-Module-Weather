@@ -22,7 +22,7 @@ func (m *weatherModule) startSim(round uint64) {
 	}
 	if m.graph == nil {
 		mudlog.Warn("Weather: no geography graph; simulation idle (fix the world and run 'weather rebuild')")
-		return // entry point publishes the "idle" snapshot (single-publish rule, see onNewRound)
+		return // entry point publishes the "idle" snapshot (single-publish rule: see publishSnapshot)
 	}
 	m.simCfg = m.cfg.simConfig()
 	m.loadContent()
@@ -33,9 +33,8 @@ func (m *weatherModule) startSim(round uint64) {
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	m.scheduleEmote(round)
 	m.simReady = true
-	// No publishSnapshot here (single-publish rule, see onNewRound): both
-	// callers — the boot startup block and rebuildGraph's entry points —
-	// publish exactly once themselves.
+	// No publishSnapshot here: startSim is a helper, not an entry point
+	// (single-publish rule: see publishSnapshot).
 }
 
 // Buff-phase seams: the real engine calls mutate the global mutator-spec
@@ -99,6 +98,8 @@ func (m *weatherModule) applyWeather() {
 // loop; the event is queued after the engine completes the move, so room
 // player counts are post-move here. Modes "all"/"off" need no entry hook
 // (every room is already covered / weather is zone-scoped).
+// Deliberately does NOT publishSnapshot: RefinedRooms lags until the next tick
+// by design — do not "fix" this with a per-move publish.
 func (m *weatherModule) onRoomChange(e events.Event) events.ListenerReturn {
 	evt, ok := e.(events.RoomChange)
 	if !ok || evt.UserId == 0 { // mobs don't need refinement on the move
@@ -209,7 +210,7 @@ func (m *weatherModule) tick(round uint64) {
 	}
 	m.persistState()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
-	m.publishSnapshot()
+	m.publishSnapshot() // single-publish rule: see publishSnapshot
 }
 
 // resolveSeasons re-resolves every zone's season and queues a

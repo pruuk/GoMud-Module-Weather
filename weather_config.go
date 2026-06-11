@@ -25,6 +25,17 @@ const (
 	RefineOff      = "off"      // zone-scoped weather mutators (v1 behavior)
 )
 
+// Numeric floors shared by buildConfig's sanity clamps (below) and the admin
+// page's validators (configKeyMeta in weather_admin.go) — single source so the
+// loader and the write-side validation can never drift apart.
+const (
+	minSeed               = 0 // 0 = "derive from the world"; negatives would wrap via uint64()
+	minTickEveryGameHours = 1
+	minMaxActiveFronts    = 1
+	minEmoteEveryRounds   = 5
+	minSpawnRateScale     = 0.0
+)
+
 // Config is the resolved module configuration (keys live under
 // Modules.weather.* and default from files/data-overlays/config.yaml). Keys
 // are flat (BuffsEnabled, not Buffs.Enabled) because plugin config lookup
@@ -112,8 +123,8 @@ func stringOr(v any, def string) string {
 // clamps so a partial or hand-mangled overlay still yields a usable module.
 func buildConfig(get getter) Config {
 	seed := intOr(get("Seed"), 0)
-	if seed < 0 {
-		seed = 0 // negative would wrap via uint64(); treat as "derive from world"
+	if seed < minSeed {
+		seed = minSeed // negative would wrap via uint64(); treat as "derive from world"
 	}
 
 	c := Config{
@@ -132,17 +143,19 @@ func buildConfig(get getter) Config {
 		SeasonsEnabled:     boolOr(get("SeasonsEnabled"), true),
 		PerRoomRefinement:  strings.ToLower(stringOr(get("PerRoomRefinement"), RefineOccupied)),
 	}
-	if c.TickEveryGameHours < 1 {
-		c.TickEveryGameHours = 1
+	// Floors are the shared min* constants above — the admin validators
+	// (configKeyMeta in weather_admin.go) reject below-floor writes outright.
+	if c.TickEveryGameHours < minTickEveryGameHours {
+		c.TickEveryGameHours = minTickEveryGameHours
 	}
-	if c.MaxActiveFronts < 1 {
-		c.MaxActiveFronts = 1
+	if c.MaxActiveFronts < minMaxActiveFronts {
+		c.MaxActiveFronts = minMaxActiveFronts
 	}
-	if c.EmoteEveryRounds < 5 {
-		c.EmoteEveryRounds = 5
+	if c.EmoteEveryRounds < minEmoteEveryRounds {
+		c.EmoteEveryRounds = minEmoteEveryRounds
 	}
-	if c.SpawnRateScale < 0 {
-		c.SpawnRateScale = 0
+	if c.SpawnRateScale < minSpawnRateScale {
+		c.SpawnRateScale = minSpawnRateScale
 	}
 	if c.EmoteMode != EmoteModeModule && c.EmoteMode != EmoteModeTagOnly {
 		c.EmoteMode = EmoteModeModule
