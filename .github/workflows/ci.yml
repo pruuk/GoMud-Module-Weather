@@ -1,0 +1,100 @@
+# CI for the GoMud weather module — two tiers, mirroring the development
+# workflow in CONTRIBUTING.md:
+#
+#   standalone      the four pure packages (sim, crawler, content, seasons)
+#                   build and test in this repo alone, with the race detector.
+#   engine-coupled  the whole module is synced into a fresh clone of upstream
+#                   GoMud master and built/vetted/tested there (the root
+#                   package and engine/ only compile inside a checkout).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  standalone:
+    name: Standalone (pure packages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out module
+        uses: actions/checkout@v4
+
+      - name: Set up Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt check
+        run: |
+          gofmt -l .
+          test -z "$(gofmt -l .)"
+
+      - name: go vet (pure packages)
+        run: go vet ./sim/... ./crawler/... ./content/... ./seasons/...
+
+      - name: go test -race (pure packages)
+        run: go test -race -count=1 ./sim/... ./crawler/... ./content/... ./seasons/...
+
+  # This job tracks UPSTREAM GoMud master as an early warning for engine API
+  # drift. A failure here while `standalone` is green usually means upstream
+  # moved (an engine API the adapter binds to changed) — that's signal, not
+  # noise: patch engine/ (see CONTRIBUTING.md "DOGMud backport delta" for the
+  # pattern), don't ignore the red.
+  engine-coupled:
+    name: Engine-coupled (upstream GoMud master)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out module
+        uses: actions/checkout@v4
+        with:
+          path: module
+
+      - name: Clone upstream GoMud master (shallow)
+        run: git clone --depth 1 --branch master https://github.com/GoMudEngine/GoMud.git gomud
+
+      - name: Set up Go (from GoMud's go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: gomud/go.mod
+          cache-dependency-path: gomud/go.sum
+
+      # Mirrors scripts/sync-to-checkout.ps1 exactly: same exclusion list.
+      # go.mod and go.sum MUST NOT travel — in-checkout modules have no go.mod
+      # (they are part of the engine module).
+      - name: Sync module into checkout (modules/weather)
+        run: |
+          mkdir -p gomud/modules/weather
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.claude' \
+            --exclude '.worktrees' \
+            --exclude 'docs' \
+            --exclude 'scripts' \
+            --exclude 'go.mod' \
+            --exclude 'go.sum' \
+            --exclude '*.png' \
+            --exclude 'Screenshot*' \
+            module/ gomud/modules/weather/
+
+      # Regenerates modules/all-modules.go so the weather module is actually
+      # imported (linked into the binary) — the same step operators run on
+      # install. Without it the module would compile but never register.
+      - name: go generate (wire module imports)
+        working-directory: gomud
+        run: go generate ./...
+
+      - name: go build (whole engine)
+        working-directory: gomud
+        run: go build ./...
+
+      - name: go vet (module in checkout)
+        working-directory: gomud
+        run: go vet ./modules/weather/...
+
+      - name: go test -race (module in checkout)
+        working-directory: gomud
+        run: go test -race -count=1 ./modules/weather/...
