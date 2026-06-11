@@ -70,6 +70,7 @@ func (m *weatherModule) onLoad() {
 	}
 	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
+	events.RegisterListener(events.RoomChange{}, m.onRoomChange)
 	events.RegisterListener(WeatherAdminAction{}, m.onAdminAction)
 	events.RegisterListener(WeatherConfigChanged{}, m.onConfigChanged)
 }
@@ -137,7 +138,7 @@ func (m *weatherModule) rebuildGraph() {
 		"zones", len(g.Nodes), "edges", len(g.Edges), "components", g.Components)
 	m.startSim(util.GetRoundCount())
 	if m.simReady {
-		engine.Reconcile(m.state.Weather)
+		m.applyWeather()
 		if m.seasonsOn {
 			m.zoneSeasons = seasons.ZoneSeasons(m.graph, m.climate, m.tracks, engine.CalendarNow())
 			engine.ReconcileSeasons(m.graph, m.zoneSeasons)

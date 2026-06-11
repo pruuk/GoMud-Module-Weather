@@ -59,6 +59,36 @@ func RefineOccupiedRooms(weather map[sim.ZoneId]sim.WeatherType) {
 	}
 }
 
+// ZoneRoomIds returns the room ids registered to one zone (thin wrapper over
+// the engine's zone registry; rooms need not be loaded).
+func ZoneRoomIds(zone string) []int {
+	return rooms.GetAllZoneRoomsIds(zone)
+}
+
+// RoomHasPlayers reports whether a room currently holds players. Uses the
+// room cache; a room a player just left is necessarily still in memory, so
+// this never force-loads in practice.
+func RoomHasPlayers(roomId int) bool {
+	room := rooms.LoadRoom(roomId)
+	return room != nil && room.PlayerCt() > 0
+}
+
+// OccupiedRoomCount counts the rooms currently holding players (snapshot
+// stat; cheap — the manager keeps this set incrementally).
+func OccupiedRoomCount() int {
+	return len(rooms.GetRoomsWithPlayers())
+}
+
+// StripOccupiedRoomWeather strips weather-* room mutators from every room
+// that currently holds players — the transition OUT of a room-scoped mode.
+// Unoccupied rooms refined earlier (mode "all") keep their mutators until the
+// specs' decayrate safety net retires them.
+func StripOccupiedRoomWeather() {
+	for _, roomId := range rooms.GetRoomsWithPlayers() {
+		StripRoomWeather(roomId)
+	}
+}
+
 // StripRoomWeather removes all weather-* mutators from one live room.
 func StripRoomWeather(roomId int) {
 	room := rooms.LoadRoom(roomId)

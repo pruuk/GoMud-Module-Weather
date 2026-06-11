@@ -77,6 +77,38 @@ func TestBuildConfigBadEmoteModeFallsBack(t *testing.T) {
 	}
 }
 
+func TestPerRoomRefinementConfig(t *testing.T) {
+	if cfg := buildConfig(func(string) any { return nil }); cfg.PerRoomRefinement != RefineOccupied {
+		t.Errorf("PerRoomRefinement must default occupied: %q", cfg.PerRoomRefinement)
+	}
+	for _, mode := range []string{RefineOccupied, RefineAll, RefineOff} {
+		cfg := buildConfig(func(k string) any {
+			return map[string]any{"PerRoomRefinement": mode}[k]
+		})
+		if cfg.PerRoomRefinement != mode {
+			t.Errorf("PerRoomRefinement %q not adopted: %q", mode, cfg.PerRoomRefinement)
+		}
+	}
+	upper := buildConfig(func(k string) any {
+		return map[string]any{"PerRoomRefinement": "ALL"}[k]
+	})
+	if upper.PerRoomRefinement != RefineAll {
+		t.Errorf("PerRoomRefinement should be case-insensitive: %q", upper.PerRoomRefinement)
+	}
+}
+
+func TestBuildConfigBadPerRoomRefinementFallsBack(t *testing.T) {
+	cfg := buildConfig(func(k string) any {
+		if k == "PerRoomRefinement" {
+			return "everywhere"
+		}
+		return nil
+	})
+	if cfg.PerRoomRefinement != RefineOccupied {
+		t.Errorf("invalid PerRoomRefinement should fall back to occupied: %q", cfg.PerRoomRefinement)
+	}
+}
+
 func TestSimConfig(t *testing.T) {
 	cfg := buildConfig(func(string) any { return nil })
 	cfg.MaxActiveFronts = 3

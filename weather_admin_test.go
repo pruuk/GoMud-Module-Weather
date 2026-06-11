@@ -68,9 +68,43 @@ func TestBuildSnapshot(t *testing.T) {
 			t.Errorf("key %s missing badge", c.Key)
 		}
 	}
-	for _, want := range []string{"TickEveryGameHours", "SeasonsEnabled", "BuffsEnabled", "Enabled", "Seed"} {
+	for _, want := range []string{"TickEveryGameHours", "SeasonsEnabled", "BuffsEnabled", "Enabled", "Seed", "PerRoomRefinement"} {
 		if !seen[want] {
 			t.Errorf("config row for %s missing", want)
+		}
+	}
+}
+
+func TestBuildSnapshotRefinementFields(t *testing.T) {
+	m := adminTestModule()
+	// Default mode is "occupied"; no players in the test world -> 0 rooms.
+	s := m.buildSnapshot()
+	if s.RefinementMode != RefineOccupied {
+		t.Errorf("RefinementMode: %q", s.RefinementMode)
+	}
+	if s.RefinedRooms != 0 {
+		t.Errorf("RefinedRooms should be 0 with no players: %d", s.RefinedRooms)
+	}
+	m.cfg.PerRoomRefinement = RefineOff
+	if s = m.buildSnapshot(); s.RefinementMode != RefineOff || s.RefinedRooms != 0 {
+		t.Errorf("off mode: %q %d", s.RefinementMode, s.RefinedRooms)
+	}
+}
+
+func TestApplyConfigChangeRefinementMode(t *testing.T) {
+	// Mode switches run their LiveApply on the game loop; in this unit test the
+	// graph zones aren't in the live room registry, so the engine calls are
+	// no-op loops — we validate adoption and snapshot refresh.
+	m := adminTestModule()
+	for _, mode := range []string{RefineAll, RefineOff, RefineOccupied} {
+		newCfg := m.cfg
+		newCfg.PerRoomRefinement = mode
+		m.applyConfigChange(newCfg, "PerRoomRefinement")
+		if m.cfg.PerRoomRefinement != mode {
+			t.Fatalf("mode %q not adopted: %q", mode, m.cfg.PerRoomRefinement)
+		}
+		if snap := loadSnapshot(); snap.RefinementMode != mode {
+			t.Errorf("snapshot not refreshed for %q: %q", mode, snap.RefinementMode)
 		}
 	}
 }
@@ -118,8 +152,10 @@ func TestConfigKeyMetaCoversAllKeys(t *testing.T) {
 			t.Errorf("%s: row badge %q != meta badge %q", row.Key, row.Badge, meta.Badge)
 		}
 	}
-	if len(configKeyMeta) != 12 {
-		t.Errorf("expected 12 config keys, got %d", len(configKeyMeta))
+	// Single source for the expected key count (Task 5 bumps this to 15).
+	const wantConfigKeys = 13
+	if len(configKeyMeta) != wantConfigKeys {
+		t.Errorf("expected %d config keys, got %d", wantConfigKeys, len(configKeyMeta))
 	}
 }
 

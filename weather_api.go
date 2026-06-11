@@ -94,7 +94,7 @@ func (m *weatherModule) exportSpawnFront(wtype string, zone string, intensity fl
 		return false
 	}
 	m.state = next
-	engine.Reconcile(m.state.Weather)
+	m.applyWeather()
 	m.persistState()
 	return true
 }

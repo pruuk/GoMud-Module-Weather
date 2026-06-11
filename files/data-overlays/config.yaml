@@ -12,3 +12,4 @@ EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)
 BuffsEnabled: true         # apply the curated default buffs carried by weather mutators
 Persist: true              # save/restore fronts + RNG across reboots
 SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
+PerRoomRefinement: occupied # occupied = refine rooms with players | all = every room (force-loads) | off = zone-scoped (v1)

@@ -14,6 +14,15 @@ const (
 	EmoteModeTagOnly = "tag-only" // mutator tags only; the world's scripts react
 )
 
+// RefineOccupied / RefineAll / RefineOff are the §2.1 per-room refinement
+// modes: room-scoped weather for occupied rooms only, for every room in every
+// zone (force-loads rooms), or classic zone-scoped application.
+const (
+	RefineOccupied = "occupied" // refine rooms holding players (default)
+	RefineAll      = "all"      // refine every room — force-loads by design
+	RefineOff      = "off"      // zone-scoped weather mutators (v1 behavior)
+)
+
 // Config is the resolved module configuration (keys live under
 // Modules.weather.* and default from files/data-overlays/config.yaml). Keys
 // are flat (BuffsEnabled, not Buffs.Enabled) because plugin config lookup
@@ -32,6 +41,7 @@ type Config struct {
 	BuffsEnabled       bool    // false strips buff ids from weather mutator specs
 	Persist            bool    // save/restore fronts + RNG across reboots
 	SeasonsEnabled     bool    // master switch for the seasons layer
+	PerRoomRefinement  string  // RefineOccupied | RefineAll | RefineOff
 }
 
 // getter abstracts plugin.Config.Get for testability.
@@ -107,6 +117,7 @@ func buildConfig(get getter) Config {
 		BuffsEnabled:       boolOr(get("BuffsEnabled"), true),
 		Persist:            boolOr(get("Persist"), true),
 		SeasonsEnabled:     boolOr(get("SeasonsEnabled"), true),
+		PerRoomRefinement:  strings.ToLower(stringOr(get("PerRoomRefinement"), RefineOccupied)),
 	}
 	if c.TickEveryGameHours < 1 {
 		c.TickEveryGameHours = 1
@@ -122,6 +133,9 @@ func buildConfig(get getter) Config {
 	}
 	if c.EmoteMode != EmoteModeModule && c.EmoteMode != EmoteModeTagOnly {
 		c.EmoteMode = EmoteModeModule
+	}
+	if c.PerRoomRefinement != RefineOccupied && c.PerRoomRefinement != RefineAll && c.PerRoomRefinement != RefineOff {
+		c.PerRoomRefinement = RefineOccupied
 	}
 	return c
 }

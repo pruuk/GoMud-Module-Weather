@@ -14,17 +14,19 @@ import (
 // an atomic pointer. HTTP handlers read it and never touch live state — the
 // module's mutex-free MainWorker invariant depends on this.
 type AdminSnapshot struct {
-	SimReady      bool             `json:"simReady"`
-	SeasonsOn     bool             `json:"seasonsOn"`
-	Round         uint64           `json:"round"`
-	NextTickRound uint64           `json:"nextTickRound"`
-	GraphZones    int              `json:"graphZones"`
-	GraphEdges    int              `json:"graphEdges"`
-	Components    int              `json:"graphComponents"`
-	Fronts        []AdminFrontRow  `json:"fronts"`
-	Zones         []AdminZoneRow   `json:"zones"`
-	Config        []AdminConfigRow `json:"config"`
-	LastAction    string           `json:"lastAction"` // human-readable result of the most recent admin action
+	SimReady       bool             `json:"simReady"`
+	SeasonsOn      bool             `json:"seasonsOn"`
+	Round          uint64           `json:"round"`
+	NextTickRound  uint64           `json:"nextTickRound"`
+	GraphZones     int              `json:"graphZones"`
+	GraphEdges     int              `json:"graphEdges"`
+	Components     int              `json:"graphComponents"`
+	RefinementMode string           `json:"refinementMode"` // occupied | all | off
+	RefinedRooms   int              `json:"refinedRooms"`   // occupied-room count when a room mode is active; 0 when off
+	Fronts         []AdminFrontRow  `json:"fronts"`
+	Zones          []AdminZoneRow   `json:"zones"`
+	Config         []AdminConfigRow `json:"config"`
+	LastAction     string           `json:"lastAction"` // human-readable result of the most recent admin action
 }
 
 // AdminFrontRow is one row of the fronts table in the snapshot.
@@ -75,11 +77,17 @@ func (m *weatherModule) publishSnapshot() {
 // buildSnapshot deep-copies the admin view of module state. Game loop only.
 func (m *weatherModule) buildSnapshot() *AdminSnapshot {
 	s := &AdminSnapshot{
-		SimReady:      m.simReady,
-		SeasonsOn:     m.seasonsOn,
-		Round:         m.state.Round,
-		NextTickRound: m.nextTick,
-		LastAction:    m.lastAdminAction,
+		SimReady:       m.simReady,
+		SeasonsOn:      m.seasonsOn,
+		Round:          m.state.Round,
+		NextTickRound:  m.nextTick,
+		RefinementMode: m.cfg.PerRoomRefinement,
+		LastAction:     m.lastAdminAction,
+	}
+	if m.cfg.PerRoomRefinement != RefineOff {
+		// Cheap: the room manager maintains the occupied set incrementally.
+		// Game-loop-only, like the rest of this builder.
+		s.RefinedRooms = engine.OccupiedRoomCount()
 	}
 	if m.graph != nil {
 		s.GraphZones = len(m.graph.Nodes)
@@ -150,6 +158,22 @@ var configKeyMeta = map[string]configKeyApplier{
 		// false->true has no live path (no restore) — badge says reboot.
 	}},
 	"Persist": {Badge: "live"},
+	"PerRoomRefinement": {Badge: "live", LiveApply: func(m *weatherModule, old Config) {
+		if old.PerRoomRefinement == m.cfg.PerRoomRefinement {
+			return
+		}
+		// Leaving a room mode for "off": clear room mutators from occupied
+		// rooms before re-asserting zone-level weather. (For all->off and
+		// all->occupied, strays in UNOCCUPIED rooms are left to the specs'
+		// decayrate safety net — the engine retires them on room load/round
+		// tick without a world-wide pass.)
+		if old.PerRoomRefinement != RefineOff && m.cfg.PerRoomRefinement == RefineOff {
+			engine.StripOccupiedRoomWeather()
+		}
+		// off->room mode needs the zone footprint stripped first; applyWeather
+		// does StripZoneWeather before refining, so ordering is covered.
+		m.applyWeather()
+	}},
 	"SeasonsEnabled": {Badge: "live", LiveApply: func(m *weatherModule, old Config) {
 		switch {
 		case old.SeasonsEnabled && !m.cfg.SeasonsEnabled:
@@ -176,6 +200,7 @@ func (m *weatherModule) configRows() []AdminConfigRow {
 		"SpawnRateScale": c.SpawnRateScale, "EmoteMode": c.EmoteMode,
 		"EmoteEveryRounds": c.EmoteEveryRounds, "BuffsEnabled": c.BuffsEnabled,
 		"Persist": c.Persist, "SeasonsEnabled": c.SeasonsEnabled,
+		"PerRoomRefinement": c.PerRoomRefinement,
 	}
 	rows := make([]AdminConfigRow, 0, len(values))
 	for key, val := range values {
@@ -218,7 +243,7 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 			break
 		}
 		m.state = next
-		engine.Reconcile(m.state.Weather)
+		m.applyWeather()
 		m.persistState()
 		m.lastAdminAction = "spawned " + a.Weather + " @ " + zone
 	case "clear":
@@ -235,7 +260,7 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 		}
 		next, _ := sim.ClearZones(m.state, m.graph, m.simCfg, zones, sim.Clock{Round: engine.CurrentRound()})
 		m.state = next
-		engine.Reconcile(m.state.Weather)
+		m.applyWeather()
 		m.persistState()
 		m.lastAdminAction = "cleared " + label
 	case "rebuild":
