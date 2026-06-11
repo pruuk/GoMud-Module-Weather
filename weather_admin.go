@@ -164,6 +164,9 @@ var configKeyMeta = map[string]configKeyApplier{
 
 // configRows serializes the config view for the snapshot. Badges come from
 // configKeyMeta — single source of truth; every public key must appear.
+// NOTE: snapshot isolation depends on Config holding ONLY scalar fields — a
+// future slice/map config value would cross into the snapshot by reference
+// through the `any` Value and must be deep-copied here instead.
 func (m *weatherModule) configRows() []AdminConfigRow {
 	c := m.cfg
 	values := map[string]any{
@@ -237,7 +240,13 @@ func (m *weatherModule) applyAdminAction(a WeatherAdminAction) {
 		m.lastAdminAction = "cleared " + label
 	case "rebuild":
 		m.rebuildGraph()
-		m.lastAdminAction = "graph rebuilt"
+		// Same honesty limit as the in-game command: a failed crawl that kept
+		// the old graph isn't detectable here, but a nil graph is.
+		if m.graph == nil {
+			m.lastAdminAction = "graph rebuild failed (see server log)"
+		} else {
+			m.lastAdminAction = "graph rebuilt"
+		}
 	default:
 		m.lastAdminAction = "unknown action " + a.Action
 	}
