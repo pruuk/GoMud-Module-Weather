@@ -46,6 +46,14 @@
 
 ## Task 1: V-1 — prove the config write round-trip
 
+> **Execution correction (2026-06-10, Task 5):** `AdminPage`'s `htmlFile`
+> argument is relative to **`datafiles/`**, NOT `datafiles/html/admin/` as
+> `webconfig.go`'s doc comment claims (the loader reads the plugin-FS key
+> verbatim — `plugins.go:535`; every shipping module passes
+> `"html/admin/<file>.html"`). Task 4's code block saying `"weather.html"` is
+> wrong; the implementation correctly uses `"html/admin/weather.html"`. The
+> engine doc comment's inaccuracy is noted for a future upstream PR.
+>
 > **V-1 VERDICT: PASS (2026-06-10).** All four properties hold. Facts for the
 > remaining tasks: `PluginConfig.Set(name string, val any)` is **void** (the
 > Task 4 handler code is correct as written); the data-overlay keys populate
