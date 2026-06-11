@@ -1,0 +1,14 @@
+# Ships with the weather module. Module buffs use the 59001-59099 id range;
+# if a world already defines this id on disk, the engine keeps the disk copy
+# and skips ours (logged at startup). Applied by the weather-blizzard mutator
+# every round the weather holds; short triggercount means it fades a couple of
+# rounds after the player finds shelter. Deliberately gentle (engine buff 31
+# "Freezing Snow" deals damage; this one only stiffens you up). Script-free.
+buffid: 59001
+name: Weather Chilled
+description: The blizzard's cold stiffens your fingers and slows your step.
+triggerrate: 1 round
+triggercount: 2
+statmods:
+  speed: -5
+  strength: -3

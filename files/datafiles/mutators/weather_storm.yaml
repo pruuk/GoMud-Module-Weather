@@ -12,4 +12,5 @@ alertmodifier:
   text: A storm rages overhead.
   colorpattern: mute-dblue
 lightmod: -1
+playerbuffids: [ 59002 ] # module "Weather Soaked" (BuffsEnabled toggles)
 decayrate: 3 hours

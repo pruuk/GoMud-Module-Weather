@@ -2,6 +2,7 @@ package content
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,6 +109,116 @@ func TestShippedSeasonalAmbience(t *testing.T) {
 		_ = yaml.Unmarshal(b, &f)
 		if wantName := f.Track + "_" + f.Season + ".yaml"; e.Name() != wantName {
 			t.Errorf("%s: filename should be %s", e.Name(), wantName)
+		}
+	}
+}
+
+// TestShippedBuffSpecs validates the bespoke weather buffs the engine's
+// plugin buff loader (internal/buffs/plugin.go) will merge at startup:
+// parseable YAML, ids in the module's documented 59001-59099 range, no
+// duplicates, and filenames exactly matching the engine's computed name
+// `<BuffId>-<ConvertForFilename(Name)>.yaml` (buffspec.go Filename(); the
+// loader rejects any file whose path doesn't end in that suffix). The
+// conversion rule is replicated by fileNameFor above (engine
+// internal/util/util.go ConvertForFilename). The buffs must stay gentle
+// nuisances (small statmods, no scripts), and every playerbuffid referenced
+// by a shipped mutator must resolve to a shipped buff.
+func TestShippedBuffSpecs(t *testing.T) {
+	dir := "../files/datafiles/buffs"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("buff specs missing: %v", err)
+	}
+	// Mirrors the engine's full BuffSpec YAML schema (buffspec.go) so the
+	// strict unmarshal below only rejects genuinely unknown fields (typos).
+	type buffSpec struct {
+		BuffId        int            `yaml:"buffid"`
+		Name          string         `yaml:"name"`
+		Description   string         `yaml:"description"`
+		Secret        bool           `yaml:"secret"`
+		TriggerNow    bool           `yaml:"triggernow"`
+		TriggerRate   string         `yaml:"triggerrate"`
+		RoundInterval int            `yaml:"roundinterval"`
+		TriggerCount  int            `yaml:"triggercount"`
+		StatMods      map[string]int `yaml:"statmods"`
+		Flags         []string       `yaml:"flags"`
+	}
+	shipped := make(map[int]string) // id -> filename
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		b, err := os.ReadFile(dir + "/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec buffSpec
+		if err := yaml.UnmarshalStrict(b, &spec); err != nil {
+			t.Errorf("%s: bad YAML: %v", e.Name(), err)
+			continue
+		}
+		if spec.BuffId < 59001 || spec.BuffId > 59099 {
+			t.Errorf("%s: buffid %d outside the module's 59001-59099 range", e.Name(), spec.BuffId)
+		}
+		if prev, dup := shipped[spec.BuffId]; dup {
+			t.Errorf("%s: duplicate buffid %d (also in %s)", e.Name(), spec.BuffId, prev)
+		}
+		shipped[spec.BuffId] = e.Name()
+		// Engine filename rule: <id>-<ConvertForFilename(name)>.yaml.
+		// fileNameFor already appends ".yaml" to the converted name.
+		if want := strconv.Itoa(spec.BuffId) + "-" + fileNameFor(spec.Name); e.Name() != want {
+			t.Errorf("%s: engine buff loader requires filename %q for id %d / name %q",
+				e.Name(), want, spec.BuffId, spec.Name)
+		}
+		if spec.Description == "" {
+			t.Errorf("%s: needs a player-visible description", e.Name())
+		}
+		// Engine BuffSpec.Validate rejects TriggerCount < 1 or an unparseable
+		// TriggerRate (RoundInterval < 1).
+		if spec.TriggerCount < 1 {
+			t.Errorf("%s: triggercount must be >= 1", e.Name())
+		}
+		if spec.TriggerRate == "" {
+			t.Errorf("%s: triggerrate must be set", e.Name())
+		}
+		// The mutator re-applies the buff every round while the weather holds;
+		// a long triggercount would linger after the player leaves the weather.
+		if spec.TriggerCount > 5 {
+			t.Errorf("%s: triggercount %d too long; buff should fade shortly after leaving the weather", e.Name(), spec.TriggerCount)
+		}
+		// Gentleness guard: markedly softer than engine 31/33 (which hit -20
+		// across five stats / dealt damage). Keep each statmod a small penalty.
+		for stat, v := range spec.StatMods {
+			if v < -10 || v > 0 {
+				t.Errorf("%s: statmod %s: %d — weather buffs must be gentle penalties in [-10, -1]", e.Name(), stat, v)
+			}
+		}
+	}
+	if len(shipped) < 3 {
+		t.Fatalf("expected at least 3 shipped buff specs, found %d", len(shipped))
+	}
+	// Cross-check: every playerbuffid a shipped mutator applies must be one of
+	// our shipped buffs (no more borrowing engine ids like 31/33, which vary
+	// by world and are harsher than weather warrants).
+	mutEntries, err := os.ReadDir("../files/datafiles/mutators")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range mutEntries {
+		b, err := os.ReadFile("../files/datafiles/mutators/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec struct {
+			PlayerBuffIds []int `yaml:"playerbuffids"`
+		}
+		if err := yaml.Unmarshal(b, &spec); err != nil {
+			continue // mutator YAML validity is TestShippedMutatorSpecs' job
+		}
+		for _, id := range spec.PlayerBuffIds {
+			if _, ok := shipped[id]; !ok {
+				t.Errorf("%s: playerbuffid %d is not a shipped weather buff", e.Name(), id)
+			}
 		}
 	}
 }
