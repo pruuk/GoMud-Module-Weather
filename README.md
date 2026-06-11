@@ -216,6 +216,25 @@ might offer "your breath plumes white and hangs in the frozen air," while the sa
 room in a summer storm hears the winter-less base storm lines. One ambient line
 per room per pass, and **weather always wins** over a quiet seasonal line.
 
+### Admin page
+
+The module ships a browser-based admin page at `/admin/weather` (visible in the
+GoMud web admin under **Modules → Weather**). Three sections: **Status** — an
+auto-refreshing (every 5 s) view of simulation state: sim/seasons flags, current
+round, graph summary, active fronts table, and zones with their current weather
+and season. **Configuration** — every config key with its current value, an edit
+field, and a **live** or **reboot** badge that shows exactly when the change takes
+effect; changes are persisted to the world's config-overrides file
+(`_datafiles/world/default/config-overrides.yaml`) so they survive reboots.
+**Actions** — spawn a front (type + zone + intensity), clear weather (one zone or
+all), and rebuild the geography graph; results are asynchronous and appear in the
+next status refresh.
+
+The page's write operations (config saves and actions) require the `weather.write`
+permission. The engine uses prefix matching (`userrecord.go:435`): a user granted
+`weather` already satisfies `weather.write`, so one grant covers both the
+in-game command tools and the admin page's write endpoints.
+
 ## How it works (one paragraph, plus the seasons transform)
 
 A **crawler** walks every room exit once at boot and reduces your world to a
