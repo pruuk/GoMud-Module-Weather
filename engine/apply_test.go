@@ -7,30 +7,22 @@ import (
 	"github.com/GoMudEngine/GoMud/modules/weather/sim"
 )
 
-// fakeMutatorSet records operations; "known:" prefixed ids Add successfully.
+// fakeMutatorSet records operations. The live state lives in the `current`
+// slice the caller passes to reconcileZone, so the fake needs no state of its
+// own.
 type fakeMutatorSet struct {
-	ops  []string
-	live map[string]bool
+	ops []string
 }
 
-func newFake(live ...string) *fakeMutatorSet {
-	f := &fakeMutatorSet{live: map[string]bool{}}
-	for _, id := range live {
-		f.live[id] = true
-	}
-	return f
-}
+func newFake() *fakeMutatorSet { return &fakeMutatorSet{} }
 func (f *fakeMutatorSet) Add(id string) bool {
 	f.ops = append(f.ops, "add:"+id)
-	f.live[id] = true
 	return true
 }
 func (f *fakeMutatorSet) Remove(id string) bool {
 	f.ops = append(f.ops, "remove:"+id)
-	delete(f.live, id)
 	return true
 }
-func (f *fakeMutatorSet) Has(id string) bool { return f.live[id] }
 
 func TestMutatorIdFor(t *testing.T) {
 	if got := MutatorIdFor("storm"); got != "weather-storm" {
@@ -38,28 +30,6 @@ func TestMutatorIdFor(t *testing.T) {
 	}
 	if MutatorIdFor(sim.Clear) != "" || MutatorIdFor("") != "" {
 		t.Error("clear and unset must map to no mutator")
-	}
-}
-
-func TestApplyChange(t *testing.T) {
-	cases := []struct {
-		name     string
-		live     []string
-		from, to sim.WeatherType
-		wantOps  []string
-	}{
-		{"calm to storm", nil, "", "storm", []string{"add:weather-storm"}},
-		{"clear to rain", nil, sim.Clear, "rain", []string{"add:weather-rain"}},
-		{"storm to rain", []string{"weather-storm"}, "storm", "rain", []string{"remove:weather-storm", "add:weather-rain"}},
-		{"storm to clear", []string{"weather-storm"}, "storm", sim.Clear, []string{"remove:weather-storm"}},
-		{"already live: no duplicate add", []string{"weather-rain"}, "", "rain", nil},
-	}
-	for _, c := range cases {
-		f := newFake(c.live...)
-		applyChange(f, c.from, c.to)
-		if !reflect.DeepEqual(f.ops, c.wantOps) {
-			t.Errorf("%s: ops = %v, want %v", c.name, f.ops, c.wantOps)
-		}
 	}
 }
 
@@ -75,7 +45,7 @@ func TestSeasonMutatorId(t *testing.T) {
 func TestReconcileSeasonZone(t *testing.T) {
 	// Same core as weather: stale season swapped for the current one,
 	// weather-* ids untouched because the caller gathers season-* only.
-	f := newFake("season-temperate-autumn")
+	f := newFake()
 	reconcileZone(f, []string{"season-temperate-autumn"}, SeasonMutatorId("temperate", "winter"))
 	want := []string{"remove:season-temperate-autumn", "add:season-temperate-winter"}
 	if !reflect.DeepEqual(f.ops, want) {
@@ -85,7 +55,7 @@ func TestReconcileSeasonZone(t *testing.T) {
 
 func TestReconcileZone(t *testing.T) {
 	// Stale storm + stray fog live; target is rain.
-	f := newFake("weather-storm", "weather-fog")
+	f := newFake()
 	reconcileZone(f, []string{"weather-storm", "weather-fog"}, MutatorIdFor("rain"))
 	want := []string{"remove:weather-storm", "remove:weather-fog", "add:weather-rain"}
 	if !reflect.DeepEqual(f.ops, want) {
@@ -93,7 +63,7 @@ func TestReconcileZone(t *testing.T) {
 	}
 
 	// Target already live: only the stray is removed.
-	f = newFake("weather-rain", "weather-fog")
+	f = newFake()
 	reconcileZone(f, []string{"weather-rain", "weather-fog"}, MutatorIdFor("rain"))
 	want = []string{"remove:weather-fog"}
 	if !reflect.DeepEqual(f.ops, want) {
@@ -101,7 +71,7 @@ func TestReconcileZone(t *testing.T) {
 	}
 
 	// Calm target: everything weather-* goes.
-	f = newFake("weather-snow")
+	f = newFake()
 	reconcileZone(f, []string{"weather-snow"}, MutatorIdFor(sim.Clear))
 	want = []string{"remove:weather-snow"}
 	if !reflect.DeepEqual(f.ops, want) {

@@ -13,13 +13,12 @@ import (
 // WeatherMutatorPrefix namespaces every mutator this module owns.
 const WeatherMutatorPrefix = "weather-"
 
-// mutatorSet is the slice of MutatorList behavior the applier needs; satisfied
-// by *mutators.MutatorList and by test fakes (the real Add consults the global
-// spec registry, so unit tests fake at this seam).
+// mutatorSet is the slice of MutatorList behavior the reconcile core needs;
+// satisfied by *mutators.MutatorList and by test fakes (the real Add consults
+// the global spec registry, so unit tests fake at this seam).
 type mutatorSet interface {
 	Add(string) bool
 	Remove(string) bool
-	Has(string) bool
 }
 
 // MutatorIdFor maps a sim weather type to its mutator id; "" for clear/unset
@@ -31,30 +30,14 @@ func MutatorIdFor(w sim.WeatherType) string {
 	return WeatherMutatorPrefix + string(w)
 }
 
-// applyChange applies one zone weather transition. Add is guarded by Has
-// because MutatorList.Add appends a duplicate entry when the mutator is
-// already live. Returns false when the target spec id is unknown (data file
-// missing or failed to load). Weather specs must not carry decayintoid: the
-// engine's Remove resets SpawnedRound and runs Update, whose decay branch
-// would instantly resurrect the entry as the decay target (a shipped-data
-// test enforces this).
-func applyChange(ms mutatorSet, from, to sim.WeatherType) bool {
-	if id := MutatorIdFor(from); id != "" {
-		ms.Remove(id)
-	}
-	if id := MutatorIdFor(to); id != "" {
-		if ms.Has(id) {
-			return true
-		}
-		return ms.Add(id)
-	}
-	return true
-}
-
-// reconcileZone forces a zone's mutators WITHIN ONE NAMESPACE to exactly
+// reconcileZone forces one mutator list's ids WITHIN ONE NAMESPACE to exactly
 // match want: every id in current except want is removed; want is added if
 // absent ("" = remove all). current must hold only ids from the same
-// namespace (the caller gathers by prefix).
+// namespace (the caller gathers by prefix). Returns false when the want spec
+// id is unknown (data file missing or failed to load). Our specs must not
+// carry decayintoid: the engine's Remove resets SpawnedRound and runs Update,
+// whose decay branch would instantly resurrect the entry as the decay target
+// (a shipped-data test enforces this).
 func reconcileZone(ms mutatorSet, current []string, want string) bool {
 	hasWant := false
 	for _, id := range current {
@@ -74,8 +57,7 @@ func reconcileZone(ms mutatorSet, current []string, want string) bool {
 // only from the single game-loop goroutine — no mutex (see context.md).
 var warnedMutators = map[string]bool{}
 
-func warnUnknownMutator(w sim.WeatherType) {
-	id := MutatorIdFor(w)
+func warnUnknownMutatorId(id string) {
 	if id == "" || warnedMutators[id] {
 		return
 	}
@@ -137,21 +119,6 @@ func warnUnknownSeasonMutator(id string) {
 	mudlog.Warn("Weather: no mutator spec loaded for season", "mutatorId", id)
 }
 
-// Apply walks a StateDiff and applies each change to its zone's zone-wide
-// mutator list (spec §9.1 primary strategy). Zones missing from the live world
-// (stale graph) are skipped.
-func Apply(diff sim.StateDiff) {
-	for _, ch := range diff.Changes {
-		zc := rooms.GetZoneConfig(ch.Zone)
-		if zc == nil {
-			continue
-		}
-		if !applyChange(&zc.Mutators, ch.From, ch.To) {
-			warnUnknownMutator(ch.To)
-		}
-	}
-}
-
 // Reconcile forces every zone's live weather mutators to match the resolved
 // weather map — used at boot after restoring persisted state (zone mutators do
 // not survive reboots) and after a graph rebuild.
@@ -161,14 +128,9 @@ func Reconcile(weather map[sim.ZoneId]sim.WeatherType) {
 		if zc == nil {
 			continue
 		}
-		var current []string
-		for _, mut := range zc.Mutators.GetActive() {
-			if strings.HasPrefix(mut.MutatorId, WeatherMutatorPrefix) {
-				current = append(current, mut.MutatorId)
-			}
-		}
-		if !reconcileZone(&zc.Mutators, current, MutatorIdFor(w)) {
-			warnUnknownMutator(w)
+		want := MutatorIdFor(w)
+		if !reconcileZone(&zc.Mutators, weatherIds(&zc.Mutators), want) {
+			warnUnknownMutatorId(want)
 		}
 	}
 }
