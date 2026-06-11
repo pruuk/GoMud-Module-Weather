@@ -1,23 +1,52 @@
-# Modules.weather.* defaults. This overlay overrides the base config.yaml; do
-# NOT add a Modules: weather: block to config-overrides.yaml (it will not merge).
-Enabled: true
-IncludeSecretExits: true   # count secret/hidden exits as zone adjacency
-RebuildGraphOnBoot: false  # false = use the cached graph if present
-Seed: 0                    # 0 = derive a stable seed from the world's zone names
-TickEveryGameHours: 1      # weather-simulation cadence (game hours)
-MaxActiveFronts: 8         # global front budget (minimum 1; set SpawnRateScale: 0 to stop new fronts)
-SpawnRateScale: 1.0        # multiplier on spawn pressure (0 disables new fronts)
-EmoteMode: module          # module = we emit ambiance | tag-only = your scripts react to mutator tags
-EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)
-BuffsEnabled: true         # apply the curated default buffs carried by weather mutators
-Persist: true              # save/restore fronts + RNG across reboots
-SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
-PerRoomRefinement: occupied # occupied = refine rooms with players | all = every room (force-loads) | off = zone-scoped (v1)
+# Modules.weather.* key reference — DOCUMENTATION ONLY. Every key below is
+# deliberately commented out; this overlay ships ZERO active keys.
+#
+# WHY: the engine's overlay merge is destructive. plugins.Load() collects the
+# overlay keys missing from the live config and hands them to
+# configs.OverlayOverrides (internal/configs/configs.go), which REPLACES the
+# whole Modules.weather map with just those keys instead of merging them. The
+# admin page persists operator changes as a nested `Modules: weather:` block
+# in the world's config-overrides.yaml — so if this overlay shipped ANY active
+# key that block lacks (e.g. a key added in a module update), the next boot
+# would wipe every operator setting, including Enabled. Shipping no active
+# keys means the clobber path never runs. Re-check OverlayOverrides before
+# re-activating keys here: this file can carry live defaults again once the
+# engine merges instead of replacing.
+#
+# Defaults therefore live in CODE: buildConfig in weather_config.go is the
+# single source of truth, and the values documented below mirror it exactly.
+# A fresh install needs no config at all — the module boots enabled.
+#
+# To change a setting, use the admin page (/admin/weather) or add a
+# `Modules: weather:` block to your world's config-overrides.yaml
+# (_datafiles/world/default/config-overrides.yaml), e.g.:
+#
+#   Modules:
+#     weather:
+#       TickEveryGameHours: 2
+#
+# Key reference (value shown = the code default):
+#
+# Enabled: true              # master switch; absent = enabled (OOBE)
+# IncludeSecretExits: true   # count secret/hidden exits as zone adjacency
+# RebuildGraphOnBoot: false  # false = use the cached graph if present
+# Seed: 0                    # 0 = derive a stable seed from the world's zone names
+# TickEveryGameHours: 1      # weather-simulation cadence (game hours)
+# MaxActiveFronts: 8         # global front budget (minimum 1; set SpawnRateScale: 0 to stop new fronts)
+# SpawnRateScale: 1.0        # multiplier on spawn pressure (0 disables new fronts)
+# EmoteMode: module          # module = we emit ambiance | tag-only = your scripts react to mutator tags
+# EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)
+# BuffsEnabled: true         # apply the curated default buffs carried by weather mutators
+# Persist: true              # save/restore fronts + RNG across reboots
+# SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
+# PerRoomRefinement: occupied # occupied = refine rooms with players | all = every room (force-loads) | off = zone-scoped (v1)
+#
 # Comma-separated globs of zones the geography crawler skips (applies on the
 # next graph rebuild). There is no "exclude nothing" value: empty falls back
 # to this default; to effectively disable exclusion, set a single
 # never-matching token (e.g. "zzz-no-exclusions").
-ExcludeZonePatterns: "instance_*,ephemeral_*"
+# ExcludeZonePatterns: "instance_*,ephemeral_*"
+#
 # Per-type buff overrides (take effect on reboot): comma-separated buff ids
 # REPLACE the outdoor weather mutator's playerbuffids for that type; an empty
 # value strips that type's buffs. Indoor variants never carry buffs, and

@@ -11,8 +11,9 @@ lives in `content/`. All fields of `weatherModule` are touched only from the
 single game-loop goroutine — no synchronization needed.
 
 ## Key Components
-- **weather.go**: the `files` embed.FS (`//go:embed files/*` — the config
-  overlay plus `datafiles/` mutator specs, buff specs, and emote tables; the
+- **weather.go**: the `files` embed.FS (`//go:embed files/*` — the
+  documentation-only config overlay plus `datafiles/` mutator specs, buff
+  specs, and emote tables; the
   engine loads `mutators/*` and `buffs/*` from it via the plugin registry,
   `content` loaders read the rest). `weatherModule` struct (plug, cfg, graph,
   started, simReady, simCfg, climate, tables, state, nextTick, nextEmote; plus
@@ -145,8 +146,8 @@ single game-loop goroutine — no synchronization needed.
   `configKeyMeta map[string]configKeyApplier` — the **single source of truth**
   for every public config key: badge text, input `Kind` (`bool`/`int`/`float`/
   `enum`/`text`) with `Options` for enums, `ReadOnly` for synthetic rows (the
-  one `BuffOverrides.*` summary row — edited in the overlay file, never via the
-  API), a `Validate` func, and an optional `LiveApply` func (run on the game
+  one `BuffOverrides.*` summary row — set in the world's config-overrides.yaml,
+  never via the API), a `Validate` func, and an optional `LiveApply` func (run on the game
   loop when the key changes). Validators mirror `buildConfig`'s coercion rules
   but REJECT what the loader would silently default or clamp (floors are the
   shared `min*` constants in weather_config.go), returning a normalized string
@@ -179,7 +180,7 @@ single game-loop goroutine — no synchronization needed.
   `handleAdminConfig` rejects with **400** any unknown key, any write to a
   `ReadOnly` row, and any value its `Validate` func refuses (the error message
   names the key); what it persists is the validator's NORMALIZED value, so the
-  overlay never accumulates values the next boot would quietly rewrite.
+  overrides file never accumulates values the next boot would quietly rewrite.
   `handleAdminAction` shape-validates (spawn needs type + zone) and queues.
   Handlers are **strictly limited** to three touches: (1) `loadSnapshot()` on
   the atomic pointer (read-only); (2) `m.plug.Config.Set` in
@@ -209,7 +210,14 @@ single game-loop goroutine — no synchronization needed.
   minTickEveryGameHours, minMaxActiveFronts, minEmoteEveryRounds,
   minSpawnRateScale) are shared by `buildConfig`'s clamps and the admin
   validators so loader and write-side validation can never drift apart.
-  `buildConfig(getter)` (testable, applies defaults and sanity clamps).
+  `buildConfig(getter)` (testable, applies defaults and sanity clamps) is the
+  **single source of config defaults** — `Enabled` defaults TRUE when absent
+  (OOBE), and the shipped data overlay (`files/data-overlays/config.yaml`)
+  carries no active keys, only documentation: the engine's
+  `configs.OverlayOverrides` REPLACES the world's `Modules.weather` block
+  (instead of merging) whenever the overlay introduces a key the block lacks,
+  which would wipe admin-page-persisted operator config on reboot (see the
+  overlay file's header).
   `simConfig()` maps module config onto `sim.Config`. `loadConfig(*plugins.Plugin)`.
 
 ## Dependencies

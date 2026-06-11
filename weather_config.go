@@ -37,9 +37,13 @@ const (
 )
 
 // Config is the resolved module configuration (keys live under
-// Modules.weather.* and default from files/data-overlays/config.yaml). Keys
-// are flat (BuffsEnabled, not Buffs.Enabled) because plugin config lookup
-// reads flattened scalar leaves.
+// Modules.weather.*). Defaults live HERE, in buildConfig — the shipped
+// data overlay (files/data-overlays/config.yaml) is documentation only and
+// carries no active keys, because the engine's configs.OverlayOverrides
+// REPLACES the world's Modules.weather block instead of merging when the
+// overlay introduces keys the block lacks (it would wipe operator config
+// written by the admin page). Keys are flat (BuffsEnabled, not
+// Buffs.Enabled) because plugin config lookup reads flattened scalar leaves.
 type Config struct {
 	Enabled            bool
 	IncludeSecretExits bool
@@ -128,7 +132,9 @@ func buildConfig(get getter) Config {
 	}
 
 	c := Config{
-		Enabled:            asBool(get("Enabled")),
+		// Enabled defaults TRUE when absent (OOBE: a fresh install boots
+		// working with zero config) — only an explicit false disables.
+		Enabled:            boolOr(get("Enabled"), true),
 		IncludeSecretExits: boolOr(get("IncludeSecretExits"), true),
 		RebuildGraphOnBoot: asBool(get("RebuildGraphOnBoot")),
 

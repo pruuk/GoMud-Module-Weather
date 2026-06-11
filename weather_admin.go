@@ -146,8 +146,8 @@ type configKeyApplier struct {
 	Options  []string // valid choices when Kind == "enum"
 	ReadOnly bool     // row is display-only; handleAdminConfig rejects writes
 	// Validate mirrors buildConfig's coercion RULES for the key but REJECTS
-	// what the loader would silently default or clamp, so the overlay never
-	// accumulates values the next boot quietly rewrites. Returns the
+	// what the loader would silently default or clamp, so the overrides file
+	// never accumulates values the next boot quietly rewrites. Returns the
 	// normalized string to persist (canonical bool, lowercased enum, ...).
 	Validate  func(string) (string, error)
 	LiveApply func(m *weatherModule, old Config)
@@ -276,7 +276,7 @@ var configKeyMeta = map[string]configKeyApplier{
 	// No LiveApply: the new patterns persist and the existing rebuild action
 	// (or 'weather rebuild') picks them up from m.cfg.
 	"ExcludeZonePatterns": {Badge: "applies on next graph rebuild", Kind: "text", Validate: validateFreeText},
-	// BuffOverrides.<type> are per-type flat keys edited in the overlay file;
+	// BuffOverrides.<type> are per-type flat keys set in config-overrides.yaml;
 	// the table shows ONE synthetic read-only summary row for all of them.
 	"BuffOverrides.*": {Badge: "takes effect on reboot", Kind: "text", ReadOnly: true},
 }

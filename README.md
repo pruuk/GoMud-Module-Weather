@@ -167,7 +167,7 @@ install path** — you do not copy files by hand.
    (stock default: 33333).
 
 That's the whole install. Weather **and** seasons are **enabled by default**
-(`Modules.weather.Enabled: true` ships in the module's config overlay): on the
+(the module's code defaults to `Enabled: true` — no config needed): on the
 first game round the module crawls your world's zones and exits into a geography
 graph, caches it, seeds the simulation from your zone names (stable per world),
 binds each biome's season track to the calendar, and starts ticking once per game
@@ -238,7 +238,7 @@ round, graph summary, the refinement mode with its **occupied rooms** count,
 active fronts table, and zones with their current weather and season.
 **Configuration** — every config key with its current value, a **typed** edit
 control (checkboxes for booleans, dropdowns for enums like `EmoteMode` and
-`PerRoomRefinement`, read-only rows for keys edited in the overlay file), and a
+`PerRoomRefinement`, read-only rows for keys set in `config-overrides.yaml`), and a
 badge that says exactly when a change takes effect (**live**, **applies on next
 graph rebuild**, **takes effect on reboot**, …). Writes are validated per key —
 a bad value (out-of-range number, unknown enum choice) is rejected with a clear
@@ -288,11 +288,16 @@ ambience. Weather wins; seasonal ambience is the quiet voice between fronts.
 
 ## Configuration
 
-All knobs live under `Modules.weather.*`. Defaults ship in this module's
-`files/data-overlays/config.yaml` — to change them, edit that file and rebuild.
-**Gotcha (inherited from the engine's overlay mechanics):** a `Modules.weather:`
-block in your server's `config-overrides.yaml` will NOT merge; module config
-comes from module overlays.
+All knobs live under `Modules.weather.*`. Defaults live in **code**
+(`buildConfig` in `weather_config.go`) — every key may be omitted, and a fresh
+install boots enabled with the values below. To change a setting, use the
+admin page or add a `Modules: weather:` block to your world's
+`config-overrides.yaml` (`_datafiles/world/default/config-overrides.yaml`).
+The shipped `files/data-overlays/config.yaml` is **documentation only** — it
+carries no active keys, deliberately: the engine's overlay merge
+(`configs.OverlayOverrides`) *replaces* the world's `Modules.weather` block
+when an overlay introduces keys the block lacks, which would wipe operator
+settings on reboot. The file's header has the full story.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -552,8 +557,9 @@ optional voice: `emotes/seasons/<track>_<season>.yaml` ambience tables and
 
 ### Recipe: overriding or stripping weather buffs
 
-`BuffOverrides.<type>` keys in the module's config overlay
-(`files/data-overlays/config.yaml` carries commented examples):
+`BuffOverrides.<type>` keys in your world's `config-overrides.yaml`, under
+`Modules: weather:` (`files/data-overlays/config.yaml` carries commented
+examples):
 
 ```yaml
 BuffOverrides.storm: "59002, 12"   # replace storm's player buffs wholesale
@@ -790,7 +796,7 @@ content/    pure data-file layer — climate + emote YAML (incl. seasonal)  (no 
 seasons/    pure season resolver — tracks → effective-climate transform   (no engine imports)
 engine/     the engine adapter — the ONLY package calling internal/* world APIs
 weather*.go module root — plugin lifecycle, tick loop, commands, exports
-files/      shipped data: config overlay, mutator specs, emote tables, season tracks
+files/      shipped data: config key reference (doc-only overlay), mutator specs, emote tables, season tracks
 ```
 
 Pure packages are tested standalone, no server needed:

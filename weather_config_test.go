@@ -27,10 +27,14 @@ func TestBuildConfig(t *testing.T) {
 }
 
 func TestBuildConfigDefaults(t *testing.T) {
-	// A getter with no values: every knob falls back to its shipped default.
+	// A getter with no values: every knob falls back to its code default.
+	// The data overlay ships NO active keys (the engine's OverlayOverrides
+	// would clobber operator config in config-overrides.yaml otherwise), so
+	// these code defaults are the single source of truth and must equal the
+	// values the overlay used to ship — pinned key by key below.
 	cfg := buildConfig(func(string) any { return nil })
-	if cfg.Enabled {
-		t.Error("Enabled must default false when config is absent (overlay normally supplies true)")
+	if !cfg.Enabled {
+		t.Error("Enabled must default TRUE when absent (OOBE: fresh install boots working)")
 	}
 	if cfg.TickEveryGameHours != 1 || cfg.MaxActiveFronts != 8 || cfg.SpawnRateScale != 1.0 {
 		t.Errorf("sim defaults wrong: %+v", cfg)
@@ -43,6 +47,36 @@ func TestBuildConfigDefaults(t *testing.T) {
 	}
 	if !cfg.IncludeSecretExits {
 		t.Error("IncludeSecretExits must default true")
+	}
+	if cfg.RebuildGraphOnBoot {
+		t.Error("RebuildGraphOnBoot must default false")
+	}
+	if !cfg.SeasonsEnabled {
+		t.Error("SeasonsEnabled must default true")
+	}
+	if cfg.PerRoomRefinement != RefineOccupied {
+		t.Errorf("PerRoomRefinement must default occupied: %q", cfg.PerRoomRefinement)
+	}
+	if want := []string{"instance_*", "ephemeral_*"}; !reflect.DeepEqual(cfg.ExcludeZonePatterns, want) {
+		t.Errorf("ExcludeZonePatterns default = %v, want %v", cfg.ExcludeZonePatterns, want)
+	}
+	if cfg.BuffOverrides != nil {
+		t.Errorf("BuffOverrides must default nil: %v", cfg.BuffOverrides)
+	}
+}
+
+func TestEnabledDefaultsTrueExplicitFalseWins(t *testing.T) {
+	// Absent → true (covered above too, but this is the regression the
+	// OverlayOverrides incident exposed, so pin it by name)...
+	if cfg := buildConfig(func(string) any { return nil }); !cfg.Enabled {
+		t.Error("absent Enabled must resolve true")
+	}
+	// ...while an explicit false still disables the module.
+	off := buildConfig(func(k string) any {
+		return map[string]any{"Enabled": false}[k]
+	})
+	if off.Enabled {
+		t.Error("explicit Enabled: false must resolve false")
 	}
 }
 
