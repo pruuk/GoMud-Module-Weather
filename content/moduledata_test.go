@@ -9,21 +9,23 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// fileNameFor mirrors the engine's util.ConvertForFilename: lowercase,
-// apostrophes dropped, any rune outside [a-z0-9] becomes '_'. The plugin
-// mutator loader requires each file to be named fileNameFor(mutatorid)+".yaml".
+// fileNameFor mirrors util.ConvertForFilename exactly (byte-level, not rune-level).
+// Buff names must be ASCII; non-ASCII would produce different byte counts here vs.
+// in the engine and cause the loader to reject the file at startup.
 func fileNameFor(id string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(id) {
-		switch {
-		case r == '\'':
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-		default:
-			b.WriteRune('_')
+	s := []byte(strings.ToLower(id))
+	pos := 0
+	for _, b := range s {
+		if b == '\'' {
+			continue
+		} else if ('a' <= b && b <= 'z') || ('0' <= b && b <= '9') {
+			s[pos] = b
+		} else {
+			s[pos] = '_'
 		}
+		pos++
 	}
-	return b.String() + ".yaml"
+	return string(s[:pos]) + ".yaml"
 }
 
 // TestShippedEmoteTables validates the default emote tables: parseable, the
@@ -189,6 +191,9 @@ func TestShippedBuffSpecs(t *testing.T) {
 		// Gentleness guard: markedly softer than engine 31/33 (which hit -20
 		// across five stats / dealt damage). Keep each statmod a small penalty.
 		for stat, v := range spec.StatMods {
+			// Weather buffs in this module are intentionally minor penalties, not bonuses.
+			// A positive statmod would indicate a design change that needs explicit review;
+			// if a positive-mod buff is ever added intentionally, update this bound.
 			if v < -10 || v > 0 {
 				t.Errorf("%s: statmod %s: %d — weather buffs must be gentle penalties in [-10, -1]", e.Name(), stat, v)
 			}
