@@ -46,7 +46,7 @@ type weatherModule struct {
 var module weatherModule
 
 func init() {
-	module = weatherModule{plug: plugins.New(`weather`, `0.1.0`)}
+	module = weatherModule{plug: plugins.New(`weather`, `0.2.0`)}
 	if err := module.plug.AttachFileSystem(files); err != nil {
 		panic(err)
 	}
