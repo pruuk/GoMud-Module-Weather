@@ -1,5 +1,7 @@
 # GoMud Weather Module
 
+[![CI](https://github.com/GoMudEngine/GoMud-Module-Weather/actions/workflows/ci.yml/badge.svg)](https://github.com/GoMudEngine/GoMud-Module-Weather/actions/workflows/ci.yml)
+
 A living weather-and-seasons system for [GoMud](https://github.com/GoMudEngine/GoMud)
 worlds. Weather forms as discrete, named **systems (fronts)** that move across a
 graph of your world's geography, gather or lose strength based on the **terrain
@@ -20,13 +22,17 @@ Built in the same spirit as the
 [GoMud Module Playtest Harness](https://github.com/GoMudEngine/GoMud-Module-Playtest-Harness):
 engine-native, compiled-in, data-driven, and testable in isolation.
 
-**Status: weather complete (M3); seasons complete (S1–S3).** The module works
-end-to-end on a stock GoMud world: install, run, and storms travel, rooms render
-`(storm-wracked)`, ambient lines play indoors and out, state survives reboots,
-and the calendar shifts each zone's climate and voice — winter rain reads as
-sleet, calm winter rooms get their own quiet ambience. Remaining before a public
-release: M4 polish (per-room indoor/biome mutator variants, `Buffs.Overrides`,
-full per-biome content) and the one-time module-registry version bump. Two design
+**Status: weather complete (M3); seasons complete (S1–S3); polish complete
+(M4).** The module works end-to-end on a stock GoMud world: install, run, and
+storms travel, rooms render `(storm-wracked)`, indoor rooms read sheltered
+("rain drums on the roof") while outdoor rooms get rained on, ambient lines
+play indoors and out, state survives reboots, and the calendar shifts each
+zone's climate and voice — winter rain reads as sleet, calm winter rooms get
+their own quiet ambience. M4 added per-room refinement (indoor mutator
+variants), the module's own gentle weather buffs, `BuffOverrides`,
+`ExcludeZonePatterns`, per-biome emote variants across the stock biomes, admin
+page validation, and CI. Remaining before a public release: the one-time
+module-registry version bump. Two design
 specs are the source of truth for scope and architecture — the
 [weather design](docs/superpowers/specs/2026-06-08-weather-module-design.md) and
 the [seasons design](docs/superpowers/specs/2026-06-10-seasons-design.md) — and
@@ -65,9 +71,12 @@ dated status notes in each record exactly what every milestone shipped.
 
 ## What this module is NOT
 
-- **Not per-room weather.** Simulation granularity is the zone. Indoor rooms are
-  not rained on — they get indoor *presentation* ("rain drums on the roof") — but
-  two outdoor rooms in one zone always share weather.
+- **Not per-room weather *simulation*.** Simulation granularity is the zone:
+  two outdoor rooms in one zone always share weather. Per-room **refinement**
+  (the M4 default) varies the *presentation* room by room — indoor rooms are
+  not rained on; they get a sheltered indoor mutator variant ("rain drums on
+  the roof") with no light penalty and no buffs — but the underlying weather
+  is still one type per zone.
 - **Not per-room or per-biome seasonal variation.** Seasons resolve per zone (one
   season, one `season-*` mutator per zone). Per-biome seasonal mutator variants
   and per-zone track overrides are deferred to a later milestone. Emote tables
@@ -102,10 +111,12 @@ dated status notes in each record exactly what every milestone shipped.
   tracks assume. With no usable calendar the module fails soft — seasons simply
   switch off and weather runs exactly as it would without them (see *What can
   break it*).
-- The stock-world content it reuses by default: buff ids **31** (Freezing Snow)
-  and **33** (Thirsty), and the stock color patterns `gray`, `blue`,
-  `mute-dblue`, `frost`, `brown`, `embers`. Missing any of these degrades
-  gracefully (see *What can break it*).
+- The stock color patterns `gray`, `blue`, `mute-dblue`, `frost`, `brown`,
+  `embers` (from your world's `color-patterns.yaml`). Missing any of these
+  degrades gracefully (see *What can break it*). The module no longer borrows
+  any stock buffs: since M4 it ships its own gentle weather buffs in the
+  reserved id range **59001–59099** (a disk buff at one of those ids wins the
+  collision — again, see *What can break it*).
 
 ## Installation
 
@@ -156,7 +167,7 @@ install path** — you do not copy files by hand.
    (stock default: 33333).
 
 That's the whole install. Weather **and** seasons are **enabled by default**
-(`Modules.weather.Enabled: true` ships in the module's config overlay): on the
+(the module's code defaults to `Enabled: true` — no config needed): on the
 first game round the module crawls your world's zones and exits into a geography
 graph, caches it, seeds the simulation from your zone names (stable per world),
 binds each biome's season track to the calendar, and starts ticking once per game
@@ -165,7 +176,7 @@ hour. No data authoring, no room tagging, no world prep.
 ### What you'll see in the boot log
 
 ```
-mutators.LoadDataFiles()  loadedCount=24        ← your world's specs + our 14 (8 weather + 6 season)
+mutators.LoadDataFiles()  loadedCount=32        ← your world's specs + our 22 (8 weather + 8 indoor + 6 season)
 Weather: built geography graph  zones=15 edges=10 components=6
 Weather: seasons active  tracks=2 seasonalZones=8
 Weather: fresh simulation state  seed=17214436859030717895 currentRound=...
@@ -203,10 +214,12 @@ Admins (and mods granted the `weather` permission key):
 | `weather graph [zone]` | A zone's graph neighbors and border weights (crawler spot-check). |
 | `weather rebuild` | Re-crawl the world and rewrite the graph cache (run after adding zones/exits); also re-resolves every zone's season. |
 
-Weather and seasons show up without anyone running commands, of course: room
-names get a tag like `(raining)`, descriptions gain a weather line and a season
-line, severe weather adds an alert banner and dims light, and occupied rooms hear
-ambient lines every ~20 rounds (indoor rooms get indoor variants).
+Weather and seasons show up without anyone running commands, of course: outdoor
+room names get a tag like `(raining)`, descriptions gain a weather line and a
+season line, severe weather adds an alert banner and dims light, and occupied
+rooms hear ambient lines every ~20 rounds. Indoor rooms are sheltered on every
+channel: a muffled description line ("rain drums on the roof"), no name tag, no
+alert, no light penalty, no buffs, and indoor ambient emote variants.
 
 **Across a season boundary**, a player sees the change accumulate rather than
 flash: room descriptions pick up the new `season-*` line on the next render, the
@@ -221,10 +234,16 @@ per room per pass, and **weather always wins** over a quiet seasonal line.
 The module ships a browser-based admin page at `/admin/weather` (visible in the
 GoMud web admin under **Modules → Weather**). Three sections: **Status** — an
 auto-refreshing (every 5 s) view of simulation state: sim/seasons flags, current
-round, graph summary, active fronts table, and zones with their current weather
-and season. **Configuration** — every config key with its current value, an edit
-field, and a **live** or **reboot** badge that shows exactly when the change takes
-effect; changes are persisted to the world's config-overrides file
+round, graph summary, the refinement mode with its **occupied rooms** count,
+active fronts table, and zones with their current weather and season.
+**Configuration** — every config key with its current value, a **typed** edit
+control (checkboxes for booleans, dropdowns for enums like `EmoteMode` and
+`PerRoomRefinement`, read-only rows for keys set in `config-overrides.yaml`), and a
+badge that says exactly when a change takes effect (**live**, **applies on next
+graph rebuild**, **takes effect on reboot**, …). Writes are validated per key —
+a bad value (out-of-range number, unknown enum choice) is rejected with a clear
+error instead of being silently clamped — and valid changes are persisted to
+the world's config-overrides file
 (`_datafiles/world/default/config-overrides.yaml`) so they survive reboots.
 **Actions** — spawn a front (type + zone + intensity), clear weather (one zone or
 all), and rebuild the geography graph; results are asynchronous and appear in the
@@ -244,10 +263,14 @@ terrain feeds or saps them, they move along edges (wide borders are likelier),
 their type drifts toward what the local climate supports, dead ones are removed,
 new ones spawn within a budget, and every zone resolves to one weather type
 (strong fronts project onto neighboring zones, so a big storm covers an area, not
-a point). The **engine adapter** then makes the world match: each zone's
-`ZoneConfig.Mutators` gets exactly the right `weather-*` mutator (the engine
-merges zone mutators into every room render), and an emote scheduler voices
-occupied rooms. State is saved through plugin storage and reconciled on boot.
+a point). The **engine adapter** then makes the world match. In the default
+**per-room** mode, each occupied room gets exactly the right room-level mutator
+— `weather-<type>` outdoors, the sheltered `weather-<type>-indoor` variant
+indoors — refreshed each tick and the moment a player walks into a room; with
+`PerRoomRefinement: off`, each zone's `ZoneConfig.Mutators` carries one
+zone-wide `weather-*` mutator instead (the engine merges zone mutators into
+every room render). Either way an emote scheduler voices occupied rooms, and
+state is saved through plugin storage and reconciled on boot.
 
 **The seasons transform sits in front of the simulation and behind the
 presentation.** Each tick, before `sim.Step` runs, the season resolver reads the
@@ -265,11 +288,21 @@ ambience. Weather wins; seasonal ambience is the quiet voice between fronts.
 
 ## Configuration
 
-All knobs live under `Modules.weather.*`. Defaults ship in this module's
-`files/data-overlays/config.yaml` — to change them, edit that file and rebuild.
-**Gotcha (inherited from the engine's overlay mechanics):** a `Modules.weather:`
-block in your server's `config-overrides.yaml` will NOT merge; module config
-comes from module overlays.
+All knobs live under `Modules.weather.*`. Every key may be omitted, and a
+fresh install boots enabled with the values below. To change a setting, use
+the admin page or add a `Modules: weather:` block to your world's
+`config-overrides.yaml` (`_datafiles/world/default/config-overrides.yaml`).
+The shipped `files/data-overlays/config.yaml` carries the defaults as
+**active** keys — that is what registers `Modules.weather.*` with the engine
+so admin-page writes (`configs.SetVal`) are accepted — and `buildConfig` in
+`weather_config.go` restates the same values as code defaults (the two are
+pinned identical by a test). The engine's overlay merge has a known bug — it
+*replaces* the live `Modules.weather` block instead of merging whenever the
+overlay carries a key your `config-overrides.yaml` block lacks (typically the
+first boot after a module update) — and the module **self-heals it at boot**:
+it detects the wipe, restores your values from the untouched file, and logs
+`Weather: restored operator config after engine overlay clobber`. Your
+operator workflow is unchanged; the overlay file's header has the full story.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -280,15 +313,16 @@ comes from module overlays.
 | `SpawnRateScale` | `1.0` | Multiplier on spawn pressure. `0` stops new fronts entirely. |
 | `EmoteMode` | `module` | `module` = we emit ambient lines (weather and seasonal); `tag-only` = we stay silent and your room scripts react to the weather/season mutators and alerts instead. |
 | `EmoteEveryRounds` | `20` | Ambient emote cadence in rounds, jittered ±25% (minimum 5). The seasonal layer fires at ~1-in-3 of these passes, in calm zones only. |
-| `BuffsEnabled` | `true` | Apply the curated default buffs carried by weather mutators (blizzard → 31 Freezing Snow, heatwave → 33 Thirsty). `false` strips buff ids from both the weather and season specs at boot. |
+| `BuffsEnabled` | `true` | Apply the buffs carried by weather mutators — the module's own gentle trio (blizzard → 59001 Weather Chilled, storm → 59002 Weather Soaked, heatwave → 59003 Weather Parched). `false` strips buff ids from both the weather and season specs at boot, and wins over any `BuffOverrides`. |
 | `Persist` | `true` | Save/restore fronts + RNG across reboots. |
 | `IncludeSecretExits` | `true` | Crawler counts secret/locked exits as zone adjacency (weather doesn't care about locks). |
 | `RebuildGraphOnBoot` | `false` | Force a fresh crawl each boot instead of using the cache. |
 | `SeasonsEnabled` | `true` | Master switch for the seasons layer. `false` = weather runs exactly as v1 (no climate shifts, no `season-*` mutators, no `WeatherSeasonChanged` events, no `GetSeason` response, no seasonal ambience). |
+| `PerRoomRefinement` | `occupied` | Where weather mutators live. `occupied` = on the rooms that hold players (refined on entry and each tick); `all` = on every room in every zone (force-loads rooms — see *What can break it*); `off` = one zone-wide mutator per zone (the pre-M4 behavior; indoor rooms get rained on again). Seasons stay zone-wide in every mode. |
+| `BuffOverrides.<type>` | *(unset)* | Per-weather-type buff replacement: a comma-separated list of buff ids **replaces** the outdoor `weather-<type>` spec's player buffs; an **empty string strips** that type's buffs. Unset = the shipped buffs. Applied at boot, before the `BuffsEnabled` strip (so `BuffsEnabled: false` still wins). See *Extending the module*. |
+| `ExcludeZonePatterns` | `instance_*,ephemeral_*` | Comma-separated globs of zone names the geography crawler skips. Applies on the next graph rebuild (`weather rebuild` or the admin page's Rebuild action). Empty falls back to the default; to effectively disable exclusion, set a single never-matching token. |
 
-Planned but not yet config keys (deferred to M4+): `PrevailingWind`,
-`PerRoomRefinement`, `Buffs.Overrides`, `ExcludeZonePatterns` (the crawler
-currently always skips `instance_*`/`ephemeral_*` zones), and a configurable
+Planned but not yet config keys: `PrevailingWind` and a configurable
 `seasonalEmoteOneIn` cadence (a `const` in `engine/emotes.go` today).
 
 ## Customizing the content
@@ -351,7 +385,12 @@ Room rendering and mechanics come from `MutatorSpec` files (standard engine
 schema: name tag, description line, alert, `lightmod`, buff ids). There are two
 namespaces, validated under the same rules:
 
-- **`files/datafiles/mutators/weather_<type>.yaml`** — one per weather type.
+- **`files/datafiles/mutators/weather_<type>.yaml`** — one per weather type,
+  **plus** a sheltered `weather_<type>_indoor.yaml` twin used by per-room
+  refinement (description line only — the shipped-data tests enforce the
+  pairing and forbid `lightmod`, buffs, and alerts on indoor variants;
+  omitting the name tag is authoring convention, not test-enforced; see
+  *Extending the module*).
 - **`files/datafiles/mutators/season_<track>_<season>.yaml`** — one per shipped
   (track, season): `season-temperate-winter`, …, `season-monsoon-dry`. Each
   appends one description line to every room in the zone, e.g. *"Winter holds the
@@ -371,7 +410,11 @@ file `weather_acid_rain.yaml`).
 - **Weather emotes** — `files/datafiles/emotes/<type>.yaml`. Lines are keyed by
   biome with a `default` fallback, split `outdoor:` / `indoor:` (indoor never
   falls back to outdoor — silence beats "rain falls around you" inside a tavern).
-  Add a biome key to give, say, forests their own storm lines.
+  Add a biome key to give, say, forests their own storm lines. Since M4 the
+  shipped tables do exactly that — ~30 per-biome variant lines across the stock
+  outdoor biomes (city rain hissing off slate roofs, shore storms, farmland
+  heatwaves) — and the shipped-data tests reject any biome key that isn't a
+  `sim.DefaultClimate` biome id, so a typo can't ship as unreachable prose.
 - **Per-season weather variants** — add a `seasonal:` block to any weather emote
   table to override lines for specific seasons. The season key matches by **name
   across tracks** ("winter" is temperate's winter; a monsoon world keys off
@@ -435,13 +478,145 @@ passage.
 
 ### Buffs posture
 
-The shipped season specs are **description-only** — no buffs, no exits. This is a
-deliberate scope decision: zone-wide buffs that persist for an entire ~4-real-day
-season are too heavy-handed to ship as defaults (buff 31 deals damage per
-trigger; buff 33 is −20 all stats). Transient *weather* buffs from M3 remain as
-shipped; season-long buffs wait for `Buffs.Overrides` (M4) so worlds opt in
-deliberately. The `BuffsEnabled: false` toggle strips buffs from **both**
-namespaces if you want a zero-buff install.
+Since M4 the module ships its **own** weather buffs instead of borrowing the
+stock world's: **59001 Weather Chilled** (blizzard, −5 speed/−3 strength),
+**59002 Weather Soaked** (storm, −5 perception), and **59003 Weather Parched**
+(heatwave, −5 speed). All three live in `files/datafiles/buffs/`, are
+deliberately gentle nuisances (the engine's 31 Freezing Snow deals damage; 33
+Thirsty is −20 across five stats), and fade two rounds after the player finds
+shelter (`triggercount: 2`). They are carried only by the **outdoor** specs —
+stepping indoors is real shelter. Want harsher (or different) effects? Replace
+them per type with `BuffOverrides.<type>` (see *Extending the module*).
+
+The shipped **season** specs remain **description-only** — no buffs, no exits.
+Zone-wide buffs that persist for an entire ~4-real-day season are too
+heavy-handed to ship as defaults, and `BuffOverrides` covers weather types
+only; a world that wants season buffs adds them via a world-specific override
+of the season spec (the same seam as seasonal exits above). The
+`BuffsEnabled: false` toggle strips buffs from **both** namespaces — overrides
+included — if you want a zero-buff install.
+
+## Extending the module — builder recipes
+
+Everything in *Customizing the content* above edits what already exists. This
+section is the recipe book for adding things that don't. Throughout, "shipped
+data" means the YAML under this module's `files/datafiles/` (changing it means
+editing the module and rebuilding — the shipped-data tests then hold you to the
+rules); a **world override** is the same-named file in your world's own data
+directory, which wins without touching the module — but that seam exists only
+for **mutator specs and buffs**, the two kinds of file the engine loads
+disk-first. Climate files, weather emote tables, seasonal-ambience tables, and
+season tracks are read exclusively from the module's embedded data — a
+same-named world file is silently ignored — so extending those always means
+editing the module and rebuilding.
+
+### Recipe: a new weather type, end to end
+
+Four files (one optional), in dependency order. Worked example: `ashfall`.
+
+1. **Make it formable — climate weights.** A weather type exists wherever a
+   climate gives it weight. Either add it to a biome's base weights
+   (`files/datafiles/climate/<biome>.yaml`: `biome: tundra` plus
+   `weather: { ashfall: 4, ... }` — the `biome:` key is **required**, a file
+   without it is rejected with a logged warning; and remember a climate file
+   replaces the biome's profile wholesale) or introduce it only
+   during a season via `weatherWeightAdditions:` (the glass-rain pattern in
+   *Season tracks* above — no climate edit needed).
+2. **Make it render — a mutator spec PAIR.** `weather_ashfall.yaml` (id
+   `weather-ashfall`: name tag, description, optional alert/`lightmod`/buffs)
+   **and** `weather_ashfall_indoor.yaml` (id `weather-ashfall-indoor`:
+   description line only). The pairing is enforced — `TestShippedMutatorSpecs`
+   fails any outdoor `weather-<type>` without its `-indoor` twin, and fails an
+   indoor variant that sets `lightmod`, buffs, or an alert. Both specs need
+   `decayrate` and must NOT set `respawnrate` or `decayintoid` (see the rules
+   in *Mutator specs* above). Without the indoor twin, indoor rooms in an
+   ashfall zone would log a warn-once and render nothing.
+3. **Make it speak — an emote table.** `files/datafiles/emotes/ashfall.yaml`
+   with at least one `outdoor: default:` and one `indoor: default:` line
+   (test-enforced); per-biome and `seasonal:` variants at your leisure.
+4. **Optionally, make it bite — a buff.** See the buff recipe below, then add
+   `playerbuffids: [ 590xx ]` to the **outdoor** spec only.
+
+One Go touch for module contributors: add the type to `sim.KnownWeatherTypes`
+(`sim/weather.go`). A drift-guard test fails in both directions — a shipped
+outdoor spec missing from the list, or a listed type with no shipped spec — and
+the list is what makes `BuffOverrides.<type>` recognize the new key. (There is
+no world-override path to a new weather type: steps 1 and 3 — climate weights
+and emote tables — load only from the module's embedded data, so a new type is
+always a module edit and a rebuild. While you're in there, add the list entry
+too, or `BuffOverrides.ashfall` is ignored — the config reader enumerates
+exactly `sim.KnownWeatherTypes`.)
+
+### Recipe: a season track or esoteric season
+
+Pure YAML, no Go — *Season tracks* above is the full reference, including the
+`baseWeightScale: 0.0` + `weatherWeightAdditions:` "Shattering" example.
+Checklist form: (1) `files/datafiles/seasons/<track>.yaml` whose seasons'
+`months:` exactly cover your calendar's months — gaps or overlaps reject the
+track at load; (2) bind biomes to it (`track: <name>` in their climate files);
+(3) a `season_<track>_<season>.yaml` mutator spec per season (description
+line; same `decayrate`-yes / `respawnrate`-`decayintoid`-no rules); (4)
+optional voice: `emotes/seasons/<track>_<season>.yaml` ambience tables and
+`seasonal:` variant blocks in the weather tables (variant keys match by season
+*name* across tracks).
+
+### Recipe: overriding or stripping weather buffs
+
+`BuffOverrides.<type>` keys in your world's `config-overrides.yaml`, under
+`Modules: weather:` (`files/data-overlays/config.yaml` carries commented
+examples):
+
+```yaml
+BuffOverrides.storm: "59002, 12"   # replace storm's player buffs wholesale
+BuffOverrides.blizzard: ""         # empty string = strip blizzard's buffs
+```
+
+The semantics, in precedence order:
+
+- A key **replaces** that type's outdoor `playerbuffids` wholesale at boot; an
+  **empty string** is an explicit strip; an absent key keeps the shipped buff.
+- `BuffsEnabled: false` runs **after** the overrides and strips everything —
+  disabling buffs always wins.
+- Indoor variants never carry buffs; overrides can't add them there.
+- Bad tokens warn and are skipped; a value with no usable ids at all falls back
+  to the shipped buffs; an override naming a weather type with no loaded spec
+  (`clear`, or a typo) warns once at apply time.
+- Changes take effect **on reboot** (boot-time spec mutation — the admin page
+  shows the `BuffOverrides.*` summary as a read-only row).
+
+Convention: module-shipped buffs use ids **59001–59099**. Custom buffs you
+write for overrides can use any free id, but staying out of that range avoids
+colliding with future module buffs.
+
+### Recipe: choosing a per-room refinement mode
+
+What each `PerRoomRefinement` value costs and shows:
+
+| Mode | Players see | Cost |
+|---|---|---|
+| `occupied` *(default)* | Correct outdoor/indoor rendering in every room a player is in — refined on entry (`RoomChange`) and every tick. One honest caveat: the engine renders the entry look *before* the `RoomChange` listener runs, so the very first description of a freshly entered, previously unoccupied room can miss the weather line; it's correct from the next render on (a one-render lag the design spec accepts). An *empty* room's data may be momentarily stale; no player is there to see it, and it heals on entry. | Negligible: a handful of mutator reconciles per move/tick; never force-loads a room. |
+| `all` | Correct rendering in every room, occupied or not — for worlds with scripts or scrying that read unoccupied rooms' mutators. | Force-loads **every room in every zone each tick**. Above the engine's room-memory threshold that means load/save disk churn every tick. Use deliberately. |
+| `off` | The pre-M4 behavior: one zone-wide mutator; indoor rooms render the outdoor weather ("rain patters down" in the tavern). | Cheapest: one mutator list per zone. |
+
+In both room modes there is **no zone-level weather mutator at all** — rooms
+are the only carriers (seasons stay zone-wide in every mode). World scripts
+that check zone mutator tags must check room mutators instead; `off` restores
+the old contract (see *What can break it*).
+
+### Recipe: seasonal exits and per-biome emote variants
+
+- **Seasonal (or weather) exits** — the `exits:` block in a world override of a
+  mutator spec; *Builder seam — seasonal exits* above has the worked frozen-
+  river example. The same field on a `weather-*` spec makes a storm-only
+  passage; in room modes, put it on the outdoor spec (indoor rooms carry the
+  `-indoor` variant).
+- **Per-biome emote variants** — in any emote table section (`outdoor:`,
+  `indoor:`, or inside a `seasonal:` block), keys are biome ids. Resolution is
+  two steps: the room's biome id → that key's lines; no key for that biome →
+  the `default` key. There is no chain beyond that (and indoor never falls
+  back to outdoor). Valid keys are the `sim.DefaultClimate` biome ids — the
+  shipped-data tests enforce this, because an unknown key is simply
+  unreachable: no room ever reports that biome.
 
 ## API for other modules
 
@@ -482,12 +657,15 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
    misbehavior — *unless* the fork changes engine *semantics* rather than
    signatures (see #6).
 
-2. **Reusing or removing the stock buff ids (31, 33).** The default specs
-   reference engine buffs by **numeric id**. If your world deleted buff 31,
-   blizzards just apply nothing (harmless). But if you *reassigned* id 31 to
-   something else — "Vampiric Frenzy", say — blizzards will cheerfully apply it,
-   with no warning, because an id is all the spec knows. If you've renumbered
-   buffs, set `BuffsEnabled: false` or edit the two specs.
+2. **A world buff already living in the 59001–59099 range.** The module ships
+   its three weather buffs (59001/59002/59003) in that reserved range and the
+   engine merges plugin buffs *under* disk buffs: on an id collision **the disk
+   copy wins** and the module's buff is skipped, with a log line at startup.
+   The weather mutators then apply *your* buff — whatever it is — every round
+   the weather holds, because an id is all the spec knows. If your world
+   already uses those ids, either renumber your buffs out of the range or
+   remap the module's per type via `BuffOverrides.<type>` (or set
+   `BuffsEnabled: false`).
 
 3. **Replacing the stock color patterns.** The specs color their text with
    `gray`, `blue`, `mute-dblue`, `frost`, `brown`, `embers` from your world's
@@ -497,9 +675,13 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
 4. **Claiming the `weather-` or `season-` mutator namespace.** All module mutator
    ids start with `weather-` or `season-`, and the module *enforces* both
    namespaces at runtime: each reconciler removes any live `weather-*` /
-   `season-*` zone mutator that doesn't match the simulation's (or the calendar's)
+   `season-*` mutator — on zones, and in room modes on the rooms it refines —
+   that doesn't match the simulation's (or the calendar's)
    view. If you hand-author a mutator named `weather-eclipse` or
-   `season-festival` and place it on a zone, the module strips it within one tick.
+   `season-festival` and place it on a zone or room, the module strips it within
+   one tick — with one qualifier: in the default `occupied` mode the reconciler
+   never visits an *unoccupied* room, so a stray there lingers until its
+   `decayrate` retires it or a player walks in (refine-on-entry strips it then).
    Use a different prefix for your own mutators. (A duplicate of one of our exact
    ids is caught at boot — the engine logs `duplicate mutator id` and keeps the
    disk version.)
@@ -510,10 +692,14 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
    season-unbound** (no `default`-profile track), so they get no seasonal climate
    shift, no `season-*` mutator, and no seasonal ambience until you ship a climate
    file that names a `track:`. Related: **indoor detection is a biome-id
-   heuristic** (`cave`, `underground`, `dungeon`, `indoor`, `tunnel`, `sewer`). A
-   custom `cavern` biome is treated as *outdoors* — players in it would see "rain
-   patters down around you" — until M4's configurable indoor handling; the
-   workaround is using a recognized id or overriding the emote tables.
+   heuristic** (the `indoorBiomes` set in `engine/worldreader.go`: `cave`,
+   `underground`, `dungeon`, `indoor`, `tunnel`, `sewer`; unknown ids count as
+   outdoors). Since M4
+   the heuristic decides more than emote flavor: in room modes it picks which
+   mutator a room gets, so a custom `cavern` biome is treated as *outdoors* —
+   rained on, name-tagged, buffed — not just told "rain patters down around
+   you." The workaround is unchanged: use a recognized indoor biome id (or
+   extend the set in the module).
 
 6. **Modifying engine internals the module's behavior depends on.** The adapter
    binds to `internal/mutators`, `internal/rooms` (zone configs),
@@ -531,8 +717,9 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
    from **room exits only**. Zones reachable solely by teleport, scripted
    movement, or magic words have no edges — weather never travels to or from them
    (each island runs independent weather; that's by design for planes, surprising
-   for a teleport-hub world). Zone names matching `instance_*` or `ephemeral_*` are
-   skipped entirely. After adding zones or exits, run `weather rebuild`.
+   for a teleport-hub world). Zone names matching the `ExcludeZonePatterns` globs
+   (default `instance_*,ephemeral_*`) are skipped entirely. After adding zones,
+   exits, or exclusion patterns, run `weather rebuild`.
 
 8. **Aggressive game-time changes.** Ticks are scheduled in *game hours* via the
    engine's `gametime`; emotes in *rounds*. If you change `RoundSeconds` or the
@@ -573,6 +760,36 @@ world or forked engine changes its behavior. Roughly in order of likelihood:
     voice. Binding it is one climate file with a `track:` key — the same file that
     fixes its bland weather.
 
+13. **World scripts keyed on ZONE weather mutators.** This one is a behavior
+    change on upgrade to M4, not a customization: in the room modes (`occupied`
+    — the default — and `all`) zone configs carry **no** weather mutators at
+    all; the `weather-<type>` (and `weather-<type>-indoor`) mutators live on
+    individual rooms. A script that inspects the zone's mutator list to ask "is
+    it storming here?" silently sees calm forever. Check the *room's* mutators
+    instead — or set `PerRoomRefinement: off`, which restores the zone-level
+    contract exactly. (Seasons are unaffected: `season-*` mutators are
+    zone-level in every mode.)
+
+14. **Room weather mutators persist in room instance files.** Room mutators are
+    part of room state, so a refined room saved to disk keeps its
+    `weather-rain` entry. That's how the design works — strays heal *lazily*:
+    the engine runs the mutator lifecycle on room load and each round tick, so
+    the spec's `decayrate` retires a stale entry within a few game hours, and
+    refine-on-entry corrects any room the moment a player walks in. The
+    corollary is what happens if you switch modes or **uninstall** mid-storm:
+    switching to `off` strips occupied rooms immediately and leaves the rest to
+    the decay safety net; removing the module entirely leaves `weather-*`
+    entries whose specs no longer exist — inert (nothing to render) and
+    harmless. Nothing to clean by hand; just don't be surprised by leftovers
+    in room instance files.
+
+15. **`PerRoomRefinement: all` on a big world.** `all` exists for worlds whose
+    scripts read *unoccupied* rooms' mutators, and it pays for that by
+    force-loading **every room in every zone on every weather tick**. Once the
+    world is over the engine's room-memory threshold, that means continuous
+    room load/save disk churn. `occupied` is the default for a reason — it
+    never force-loads anything and players can't tell the difference.
+
 ## Development & testing
 
 The repo splits along an engine boundary:
@@ -584,7 +801,7 @@ content/    pure data-file layer — climate + emote YAML (incl. seasonal)  (no 
 seasons/    pure season resolver — tracks → effective-climate transform   (no engine imports)
 engine/     the engine adapter — the ONLY package calling internal/* world APIs
 weather*.go module root — plugin lifecycle, tick loop, commands, exports
-files/      shipped data: config overlay, mutator specs, emote tables, season tracks
+files/      shipped data: config defaults (active overlay; registers the keys), mutator specs, emote tables, season tracks
 ```
 
 Pure packages are tested standalone, no server needed:
@@ -608,20 +825,31 @@ go test ./modules/weather/...
 against a live engine. It is not an installation mechanism — operators install
 through GoMud's module manager as described above.)
 
+CI (`.github/workflows/ci.yml`, the badge at the top) runs the same split on
+every push to `main` and every pull request: a **standalone** job (the four pure packages,
+gofmt/vet/`-race`) and an **engine-coupled** job that clones upstream GoMud
+*master*, syncs the module in (mirroring `sync-to-checkout.ps1`), and
+builds/vets/tests it there. The engine-coupled job deliberately tracks a
+moving target as an **upstream-drift early warning**: red there while
+standalone stays green usually means upstream moved an engine API the adapter
+binds to — that's signal, not noise; patch `engine/` against the new upstream.
+
 `CONTRIBUTING.md` covers the module/engine ownership boundary, the OOBE
 requirement, architecture rules, and the boot smoke-test checklist. Each Go
 package carries a `context.md` describing its responsibilities in detail.
 
 ## Roadmap
 
-- **M4 — polish & default content:** per-room and per-biome indoor mutator
-  variants, per-biome *seasonal* mutator variants, `Buffs.Overrides`,
-  full per-biome emote/climate coverage for every stock biome, a configurable
-  seasonal-ambience cadence, a builder guide, and CI.
-- **v2 remainder:** `PrevailingWind`, `PerRoomRefinement`, `ExcludeZonePatterns`,
-  and a weather/seasons GMCP package for client-side rendering.
+- **M4 — polish & default content: done.** Per-room refinement with indoor
+  mutator variants, the module's own gentle weather buffs,
+  `BuffOverrides.<type>`, `ExcludeZonePatterns`, per-biome emote variants
+  across the stock biomes, admin page validation and typed inputs, this
+  builder guide, and CI.
+- **v2 remainder:** `PrevailingWind`, per-biome *seasonal* mutator variants, a
+  configurable seasonal-ambience cadence, a configurable indoor-biome set, and
+  a weather/seasons GMCP package for client-side rendering.
 - **Registry version bump** — a one-time tarball + `plugins.New` version bump and
-  registry PR now that weather and seasons are feature-complete.
+  registry PR now that weather, seasons, and polish are feature-complete.
 
 ## License
 

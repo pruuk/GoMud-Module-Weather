@@ -742,6 +742,21 @@ GoMud is **GPLv3**; this module compiles into a GPLv3 binary and ships under **G
 
 Each milestone is its own spec → plan → implementation cycle; M1–M3 correspond to the three sub-projects. **No milestone depends on a GoMud engine change** (§5.6).
 
+> **Status (2026-06-11, M4):** implemented on branch `worktree-m4-polish` and
+> smoke-verified end-to-end on the stock world (full evidence in the
+> [M4 polish spec](2026-06-10-m4-polish-design.md) status note): per-room
+> refinement (`PerRoomRefinement: occupied|all|off` with indoor `-indoor`
+> variants and refine-on-entry), bespoke module buffs 59001–59003 plus
+> `BuffOverrides.<type>` remapping, `ExcludeZonePatterns`, per-biome emote
+> variants, README builder guide, the four AP1 polish items (validation 400s,
+> typed inputs, badges, read-back-verified writes), and the CI workflow
+> (authored; first run happens on push to the org repo). The OOBE smoke
+> surfaced two engine config-layer defects — `Config.OverlayOverrides`
+> replaces (not merges) the inner `Modules.<module>` map, and
+> `PluginConfig.Set` swallows `SetVal` errors — the module ships a boot
+> self-heal plus verified admin writes as mitigations; engine fixes are queued
+> for a separate upstream PR.
+
 ---
 
 ## 17. Extending the Module (builder/dev guide, summary)

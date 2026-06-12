@@ -40,12 +40,16 @@
 
     /* config table */
     .cfg-input { width: 100%; max-width: 220px; }
+    .cfg-ro { color: var(--color-text-muted); }
     .badge {
         display: inline-block; font-size: 0.68rem; font-weight: 600; padding: 0.12rem 0.45rem;
-        border-radius: 3px; background: var(--color-chip-bg); color: var(--color-chip-text);
-        border: 1px solid var(--color-border-light); white-space: nowrap;
+        border-radius: 3px; border: 1px solid var(--color-border-light); white-space: nowrap;
     }
-    .badge.live { background: var(--color-success-bg); color: var(--color-success-text); border-color: transparent; }
+    /* badge nuance: green = fully live, amber = partially live (live one way,
+       reboot the other), gray = reboot/deferred only */
+    .badge.green { background: var(--color-success-bg); color: var(--color-success-text); border-color: transparent; }
+    .badge.amber { background: var(--color-warning-bg); color: var(--color-warning-text); border-color: transparent; }
+    .badge.gray  { background: var(--color-surface-raised); color: var(--color-text-muted); }
 
     /* buttons */
     .btn {
@@ -186,6 +190,11 @@
         const seasons = s.seasonsOn
             ? '<span class="pill on">on</span>'
             : '<span class="pill off">off</span>';
+        // refinedRooms is the OCCUPIED-room count even in "all" mode, so label
+        // it that way regardless of mode.
+        const mode = s.refinementMode || 'off';
+        const refine = escHtml(mode) +
+            (mode !== 'off' ? ' &middot; ' + (s.refinedRooms || 0) + ' occupied rooms' : '');
         document.getElementById('statLine').innerHTML =
             '<span><span class="label">Simulation</span>' + sim + '</span>' +
             '<span><span class="label">Seasons</span>' + seasons + '</span>' +
@@ -193,7 +202,8 @@
             '<span><span class="label">Next tick</span><span class="val">' + (s.nextTickRound || 0) + '</span></span>' +
             '<span><span class="label">Graph</span><span class="val">' +
                 (s.graphZones || 0) + ' zones / ' + (s.graphEdges || 0) + ' edges / ' +
-                (s.graphComponents || 0) + ' comp.</span></span>';
+                (s.graphComponents || 0) + ' comp.</span></span>' +
+            '<span><span class="label">Refinement</span><span class="val">' + refine + '</span></span>';
     }
 
     function renderFronts(fronts) {
@@ -221,17 +231,58 @@
     // -------------------------------------------------------------------------
     // Config table
     // -------------------------------------------------------------------------
+    // Badge color is classified from the badge TEXT — data-driven, no per-key
+    // hardcoding: live+reboot wording (partial live apply) → amber; live
+    // without reboot → green; everything else (reboot/deferred) → gray.
+    function badgeClass(badge) {
+        const b = String(badge || '').toLowerCase();
+        // Word-boundary match: a bare substring test would let e.g. "lively"
+        // count as live or "reboots" miss vs match inconsistently.
+        const live = /\blive\b/.test(b), reboot = /\breboot\b/.test(b);
+        if (live && reboot) return 'amber';
+        if (live) return 'green';
+        return 'gray';
+    }
+
+    // Typed input per row kind: checkbox for bools, <select> for enums
+    // (options come from the snapshot), text input otherwise.
+    function inputFor(r, id) {
+        const v = valStr(r.value);
+        if (r.kind === 'bool') {
+            return '<input type="checkbox" id="' + escAttr(id) + '"' +
+                (v === 'true' ? ' checked' : '') + ' />';
+        }
+        if (r.kind === 'enum') {
+            // If the current value isn't among the options (stale snapshot,
+            // hand-edited overlay), append it rather than letting the select
+            // silently snap to the first option.
+            const opts = (r.options || []).slice();
+            if (v && opts.indexOf(v) === -1) opts.push(v);
+            return '<select class="cfg-input" id="' + escAttr(id) + '">' +
+                opts.map(o =>
+                    '<option value="' + escAttr(o) + '"' + (o === v ? ' selected' : '') + '>' +
+                        escHtml(o) + '</option>'
+                ).join('') + '</select>';
+        }
+        return '<input type="text" class="cfg-input" id="' + escAttr(id) + '" value="' +
+            escAttr(v) + '" />';
+    }
+
     function renderConfig(rows) {
         const body = document.getElementById('configBody');
         if (!rows.length) { body.innerHTML = '<tr><td class="empty" colspan="4">No config.</td></tr>'; return; }
         body.innerHTML = rows.map(r => {
-            const id = 'cfg_' + r.key;
-            const live = /^live\b/.test(r.badge) ? ' live' : '';
+            // Read-only rows (synthetic summaries) render as plain text with
+            // no Save control — the API refuses writes to them anyway.
+            const value = r.readOnly
+                ? '<span class="cfg-ro">' + escHtml(valStr(r.value)) + '</span>'
+                : inputFor(r, 'cfg_' + r.key);
+            const save = r.readOnly ? '' :
+                '<button class="btn" onclick="saveConfig(\'' + escAttr(r.key) + '\')">Save</button>';
             return '<tr><td><code>' + escHtml(r.key) + '</code></td>' +
-                '<td><input type="text" class="cfg-input" id="' + id + '" value="' +
-                    escAttr(valStr(r.value)) + '" /></td>' +
-                '<td><span class="badge' + live + '">' + escHtml(r.badge) + '</span></td>' +
-                '<td><button class="btn" onclick="saveConfig(\'' + escAttr(r.key) + '\')">Save</button></td></tr>';
+                '<td>' + value + '</td>' +
+                '<td><span class="badge ' + badgeClass(r.badge) + '">' + escHtml(r.badge) + '</span></td>' +
+                '<td>' + save + '</td></tr>';
         }).join('');
     }
 
@@ -242,8 +293,13 @@
 
     window.saveConfig = async function (key) {
         const input = document.getElementById('cfg_' + key);
-        const value = input ? input.value.trim() : '';
+        if (!input) return;
+        const value = input.type === 'checkbox'
+            ? (input.checked ? 'true' : 'false')
+            : input.value.trim();
         const res = await AdminAPI.post(CONFIG_URL, { key: key, value: value });
+        // Validation failures (400) land here: errMsg surfaces the handler's
+        // message (e.g. the valid range) in the red status bar.
         if (!res.ok) { showStatus('error', 'Save failed: ' + errMsg(res)); return; }
         const p = payload(res) || {};
         showStatus('success', 'Saved ' + key + ' — ' + (p.badge || 'queued') + '.');
@@ -292,7 +348,8 @@
     }
 
     function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-    function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    // & first, like escHtml — escaping it later would double-escape the others.
+    function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     fetchStatus();
     setInterval(fetchStatus, 5000);

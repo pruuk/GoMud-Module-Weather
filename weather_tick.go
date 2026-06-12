@@ -22,22 +22,100 @@ func (m *weatherModule) startSim(round uint64) {
 	}
 	if m.graph == nil {
 		mudlog.Warn("Weather: no geography graph; simulation idle (fix the world and run 'weather rebuild')")
-		m.publishSnapshot() // publish "idle" state so the admin page can show it
-		return
+		return // entry point publishes the "idle" snapshot (single-publish rule: see publishSnapshot)
 	}
 	m.simCfg = m.cfg.simConfig()
 	m.loadContent()
 	m.loadSeasons()
-	if !m.cfg.BuffsEnabled {
-		n := engine.StripBuffs()
-		mudlog.Info("Weather: buffs disabled by config", "specsStripped", n)
-	}
+	m.applyBuffConfig()
 	m.loadOrInitState(round)
-	engine.Reconcile(m.state.Weather)
+	m.applyWeather()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
 	m.scheduleEmote(round)
 	m.simReady = true
-	m.publishSnapshot()
+	// No publishSnapshot here: startSim is a helper, not an entry point
+	// (single-publish rule: see publishSnapshot).
+}
+
+// Buff-phase seams: the real engine calls mutate the global mutator-spec
+// registry (empty under `go test`); the ordering test swaps these to record
+// the call sequence. Logging lives in the defaults so the test doubles don't
+// touch the engine logger.
+var (
+	applyBuffOverridesFn = func(overrides map[string][]int) int {
+		n := engine.ApplyBuffOverrides(overrides)
+		mudlog.Info("Weather: buff overrides applied", "configured", len(overrides), "specsChanged", n)
+		return n
+	}
+	stripBuffsFn = func() int {
+		n := engine.StripBuffs()
+		mudlog.Info("Weather: buffs disabled by config", "specsStripped", n)
+		return n
+	}
+)
+
+// applyBuffConfig is the boot-time buff phase: per-type overrides first, then
+// the BuffsEnabled=false strip — NEVER the reverse, so disabling buffs always
+// wins, overrides included (spec §3). Both are spec mutations with no restore
+// path short of a reboot (the admin badges say so).
+func (m *weatherModule) applyBuffConfig() {
+	if len(m.cfg.BuffOverrides) > 0 {
+		applyBuffOverridesFn(m.cfg.BuffOverrides)
+	}
+	if !m.cfg.BuffsEnabled {
+		stripBuffsFn()
+	}
+}
+
+// applyWeather is the single switch between zone-scoped and room-scoped
+// weather application (spec §2.1) — every path that asserts weather mutators
+// funnels through here. Seasons are always zone-wide and untouched here.
+// Game loop only.
+func (m *weatherModule) applyWeather() {
+	if m.cfg.PerRoomRefinement == RefineOff {
+		engine.Reconcile(m.state.Weather)
+		return
+	}
+	// Room-scoped modes own the weather footprint: clear the zone-level
+	// mutators first so rooms are the only carriers.
+	engine.StripZoneWeather(m.graph)
+	switch m.cfg.PerRoomRefinement {
+	case RefineAll:
+		// Refining every room force-loads unloaded rooms by design — the
+		// documented cost of "all"; "occupied" never force-loads.
+		for _, zone := range m.graph.Zones() {
+			for _, roomId := range engine.ZoneRoomIds(zone) {
+				engine.RefineRoom(roomId, m.state.Weather)
+			}
+		}
+	default: // RefineOccupied
+		engine.RefineOccupiedRooms(m.state.Weather)
+	}
+}
+
+// onRoomChange keeps "occupied" mode current between ticks: refine the room a
+// player enters, strip the one they left once it empties. Runs on the game
+// loop; the event is queued after the engine completes the move, so room
+// player counts are post-move here. Modes "all"/"off" need no entry hook
+// (every room is already covered / weather is zone-scoped).
+// Deliberately does NOT publishSnapshot: RefinedRooms lags until the next tick
+// by design — do not "fix" this with a per-move publish.
+func (m *weatherModule) onRoomChange(e events.Event) events.ListenerReturn {
+	evt, ok := e.(events.RoomChange)
+	if !ok || evt.UserId == 0 { // mobs don't need refinement on the move
+		return events.Continue
+	}
+	if !m.simReady || m.cfg.PerRoomRefinement != RefineOccupied {
+		return events.Continue
+	}
+	// Always refine the destination — logins fire RoomChange with From==To
+	// (world.go enterWorld → MoveToRoom into the saved room), and that room
+	// just became occupied. RefineRoom is idempotent, so this is cheap.
+	engine.RefineRoom(evt.ToRoomId, m.state.Weather)
+	if evt.FromRoomId > 0 && evt.FromRoomId != evt.ToRoomId && !engine.RoomHasPlayers(evt.FromRoomId) {
+		engine.StripRoomWeather(evt.FromRoomId)
+	}
+	return events.Continue
 }
 
 // loadContent loads climate overrides and emote tables from the module's
@@ -126,13 +204,13 @@ func (m *weatherModule) tick(round uint64) {
 	next, diff := sim.Step(m.state, m.graph, climate, m.simCfg, sim.Clock{Round: round})
 	m.state = next
 	_ = diff // per-zone changes are implied by the reconcile below
-	engine.Reconcile(m.state.Weather)
+	m.applyWeather()
 	if m.seasonsOn {
 		m.resolveSeasons()
 	}
 	m.persistState()
 	m.nextTick = engine.NextTickRound(engine.TickPeriod(m.cfg.TickEveryGameHours))
-	m.publishSnapshot()
+	m.publishSnapshot() // single-publish rule: see publishSnapshot
 }
 
 // resolveSeasons re-resolves every zone's season and queues a

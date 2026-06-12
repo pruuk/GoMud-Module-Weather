@@ -1,0 +1,13 @@
+# Ships with the weather module. Module buffs use the 59001-59099 id range;
+# if a world already defines this id on disk, the engine keeps the disk copy
+# and skips ours (logged at startup). Applied by the weather-storm mutator
+# every round the weather holds; short triggercount means it fades a couple of
+# rounds after the player finds shelter. A minor nuisance, not a hazard.
+# Script-free.
+buffid: 59002
+name: Weather Soaked
+description: You are soaked through; rain in your eyes makes it hard to notice much.
+triggerrate: 1 round
+triggercount: 2
+statmods:
+  perception: -5

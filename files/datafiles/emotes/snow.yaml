@@ -3,6 +3,10 @@ outdoor:
   default:
     - "Fat snowflakes spiral down in lazy silence."
     - "Snow creaks and squeaks beneath every footstep."
+  mountains:
+    - "Snow settles on the crags above, whitening the ridgelines ledge by ledge."
+  snow:
+    - "New snow sifts over the old drifts; the snowfield loses its last hard edges."
 indoor:
   default:
     - "Snowflakes whirl past outside; the cold radiates from the walls."

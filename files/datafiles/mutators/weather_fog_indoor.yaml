@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-fog-indoor
+descriptionmodifier:
+  behavior: append
+  text: Tendrils of fog curl at the threshold, seeping under every door.
+  colorpattern: gray
+decayrate: 3 hours

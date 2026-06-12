@@ -64,12 +64,22 @@ func init() {
 // command map before onLoad). World crawling and sim startup are deferred to
 // the first NewRound (engine-specific onLoad timing vs world load).
 func (m *weatherModule) onLoad() {
+	// The self-heal MUST run before the config read below: if the engine's
+	// overlay merge clobbered the live Modules.weather block this boot (see
+	// healConfigClobber), loadConfig would otherwise adopt code defaults —
+	// including Enabled=true — in place of the operator's settings.
+	m.healConfigClobber()
 	m.cfg = loadConfig(m.plug)
 	if !m.cfg.Enabled {
+		// One-off snapshot so the always-registered admin page reports the
+		// truth instead of "module starting" forever. Nothing else ever
+		// publishes in this branch (no listeners are registered).
+		adminSnapshot.Store(&AdminSnapshot{LastAction: "module disabled by config (Enabled: false)"})
 		return
 	}
 	m.plug.Callbacks.SetOnSave(m.onSave)
 	events.RegisterListener(events.NewRound{}, m.onNewRound)
+	events.RegisterListener(events.RoomChange{}, m.onRoomChange)
 	events.RegisterListener(WeatherAdminAction{}, m.onAdminAction)
 	events.RegisterListener(WeatherConfigChanged{}, m.onConfigChanged)
 }
@@ -85,6 +95,7 @@ func (m *weatherModule) onNewRound(e events.Event) events.ListenerReturn {
 		m.started = true
 		m.loadOrBuildGraph()
 		m.startSim(evt.RoundNumber)
+		m.publishSnapshot() // single-publish rule: see publishSnapshot
 	}
 	if !m.simReady {
 		return events.Continue
@@ -119,6 +130,7 @@ func (m *weatherModule) loadOrBuildGraph() {
 func (m *weatherModule) rebuildGraph() {
 	opts := crawler.DefaultOptions()
 	opts.IncludeSecretExits = m.cfg.IncludeSecretExits
+	opts.ExcludeZonePatterns = m.cfg.ExcludeZonePatterns
 	opts.BuiltAtRound = util.GetRoundCount()
 
 	g, err := crawler.Build(engine.NewWorldReader(), opts)
@@ -137,13 +149,14 @@ func (m *weatherModule) rebuildGraph() {
 		"zones", len(g.Nodes), "edges", len(g.Edges), "components", g.Components)
 	m.startSim(util.GetRoundCount())
 	if m.simReady {
-		engine.Reconcile(m.state.Weather)
+		m.applyWeather()
 		if m.seasonsOn {
 			m.zoneSeasons = seasons.ZoneSeasons(m.graph, m.climate, m.tracks, engine.CalendarNow())
 			engine.ReconcileSeasons(m.graph, m.zoneSeasons)
 		}
 	}
-	m.publishSnapshot()
+	// No publishSnapshot here: rebuildGraph is a helper, not an entry point
+	// (single-publish rule: see publishSnapshot).
 }
 
 // sendLine writes one line to a user. It is the ONLY place this module calls the

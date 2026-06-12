@@ -1,6 +1,6 @@
 # GoMud Weather Module — M4 Polish Design Spec
 
-- **Status:** Approved design, pre-implementation
+- **Status:** Implemented on branch worktree-m4-polish — 2026-06-11; smoke-verified
 - **Date:** 2026-06-10
 - **Baseline:** main `0e8661f` (weather M3 + seasons S1–S3 + admin page AP1,
   merged and pushed). **The next release (v0.2.0 + registry bump) is held
@@ -8,6 +8,32 @@
 - **Parent docs:** [weather spec](2026-06-08-weather-module-design.md) (§9.1
   refinement, §9.5 buffs, M4 milestone row), [seasons spec](2026-06-10-seasons-design.md),
   [admin page spec](2026-06-10-admin-page-design.md).
+
+> **Smoke status (2026-06-11):** the final OOBE smoke passed all eight checklist
+> items on upstream GoMud's stock world: clean boot (32 mutator specs, 46 buff
+> specs including the three module buffs, no weather warnings); room-scoped storm
+> application in `occupied` mode (`weather-storm` lands on room instance lists,
+> indoor rooms render only the sheltered `-indoor` line with no name tag/alert,
+> zone-configs never carry weather mutators); refine-on-entry with the documented
+> one-render lag; blizzard → 59001 Weather Chilled outdoors, fading within ~2-3
+> rounds of shelter with no reapply; live `PerRoomRefinement` occupied↔off
+> switching via the admin API with read-back-verified 200s and validation 400s
+> (bad enum, out-of-range int, read-only `BuffOverrides.*`); a
+> `BuffOverrides: {storm: "59001"}` file round-trip (Chilled with the override,
+> Soaked 59002 after removal); persistence across graceful shutdowns
+> (`Weather: restored simulation state`, front ids/ages preserved, correct
+> weather on re-entry, no stale zone mutators, no warn growth); and zone-wide
+> seasonal prose in both modes, including never-refined rooms.
+> The smoke campaign surfaced **two engine defects**, both mitigated in-module
+> and queued for a separate upstream PR: (1) `configs.AddOverlayOverrides` →
+> `Config.OverlayOverrides` REPLACES the inner `Modules.<module>` map instead of
+> merging, wiping every operator-set key from the live config on upgrade boots —
+> mitigated by the boot self-heal (`healConfigClobber`, 7fe71bf; observed healing
+> 12 keys on boot 1 and correctly silent on every subsequent boot); (2) the
+> engine's `PluginConfig.Set` swallows `configs.SetVal` errors, so rejected
+> writes look identical to successes — mitigated by read-back-verified admin
+> config writes (265666f + 7fe71bf). UNVERIFIED: the CI workflow is authored but
+> has never executed — it first runs on push to the org repo.
 
 ---
 

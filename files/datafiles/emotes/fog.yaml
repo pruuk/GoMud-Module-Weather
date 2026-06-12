@@ -3,6 +3,17 @@ outdoor:
   default:
     - "The fog coils and shifts, briefly revealing shapes that aren't there."
     - "Sound arrives strangely muffled through the gray."
+  city:
+    - "A bell tolls somewhere in the fog, directionless and strange."
+    - "Lamplight smears to dull halos along the fogbound street."
+  mountains:
+    - "The fog tears open for a heartbeat, baring a gulf of empty air beside the path."
+  shore:
+    - "Out on the water a horn sounds, low and smothered by the fog."
+  water:
+    - "Fog erases the horizon until gray water and gray sky are one."
+  swamp:
+    - "Something splashes unseen out in the fog-blind reeds."
 indoor:
   default:
     - "Tendrils of fog seep in around the edges of the room."

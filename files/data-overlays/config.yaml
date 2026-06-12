@@ -1,6 +1,40 @@
-# Modules.weather.* defaults. This overlay overrides the base config.yaml; do
-# NOT add a Modules: weather: block to config-overrides.yaml (it will not merge).
-Enabled: true
+# Modules.weather.* defaults — every key below is ACTIVE, and that is
+# load-bearing in two ways (verified in engine source,
+# internal/configs/configs.go — see AddOverlayOverrides and SetVal):
+#
+#  1. REGISTRATION. plugins.Load() hands these keys to
+#     configs.AddOverlayOverrides, the ONLY mechanism that registers
+#     Modules.weather.* with the config layer's key/type lookups. A key that is
+#     not active here is rejected by configs.SetVal ("invalid property name"),
+#     which breaks the admin page's write path — silently, because the engine's
+#     PluginConfig.Set discards SetVal's error (internal/plugins/pluginconfig.go).
+#
+#  2. THE CLOBBER, AND ITS CURE. The same AddOverlayOverrides call collects the
+#     overlay keys MISSING from the operator's config-overrides.yaml block and
+#     hands just those to Config.OverlayOverrides — which REPLACES the live
+#     Modules.weather map wholesale instead of merging. Every operator-set key
+#     vanishes from the LIVE config (the file is untouched) on exactly the
+#     boots where this overlay carries a key the operator's block lacks — i.e.
+#     the first boot after a module update, once the admin page ever wrote the
+#     block. The module self-heals at boot: healConfigClobber
+#     (weather_config.go) compares the untouched file against the live config
+#     and restores the operator's values with one registered write. Defense in
+#     depth: buildConfig's code defaults mirror these values exactly (pinned by
+#     TestOverlayMatchesCodeDefaults) and Enabled defaults true when absent, so
+#     even an un-healed wipe leaves the module functional.
+#
+# KEEP THIS FILE AND buildConfig (weather_config.go) IDENTICAL — the values
+# below ARE the code defaults, restated so the engine registers the keys.
+#
+# To change a setting, use the admin page (/admin/weather) or add a
+# `Modules: weather:` block to your world's config-overrides.yaml
+# (_datafiles/world/default/config-overrides.yaml), e.g.:
+#
+#   Modules:
+#     weather:
+#       TickEveryGameHours: 2
+
+Enabled: true              # master switch; absent = enabled (OOBE)
 IncludeSecretExits: true   # count secret/hidden exits as zone adjacency
 RebuildGraphOnBoot: false  # false = use the cached graph if present
 Seed: 0                    # 0 = derive a stable seed from the world's zone names
@@ -12,3 +46,23 @@ EmoteEveryRounds: 20       # ambient emote cadence in rounds (jittered +/-25%)
 BuffsEnabled: true         # apply the curated default buffs carried by weather mutators
 Persist: true              # save/restore fronts + RNG across reboots
 SeasonsEnabled: true       # seasonal modulation of weather odds (v2); false = v1 behavior
+PerRoomRefinement: occupied # occupied = refine rooms with players | all = every room (force-loads) | off = zone-scoped (v1)
+
+# Comma-separated globs of zones the geography crawler skips (applies on the
+# next graph rebuild). There is no "exclude nothing" value: empty falls back
+# to this default; to effectively disable exclusion, set a single
+# never-matching token (e.g. "zzz-no-exclusions").
+ExcludeZonePatterns: "instance_*,ephemeral_*"
+
+# Per-type buff overrides (take effect on reboot) STAY COMMENTED: they are
+# per-weather-type keys and the type set is open (custom types), so the full
+# set cannot be pre-registered here. Set them directly in your world's
+# config-overrides.yaml under `Modules: weather:` — the admin page shows them
+# read-only. Comma-separated buff ids REPLACE the outdoor weather mutator's
+# playerbuffids for that type; an empty value strips that type's buffs. Indoor
+# variants never carry buffs, and BuffsEnabled: false still strips everything,
+# overrides included. Shipped ids: 59001 chilled (blizzard), 59002 soaked
+# (storm), 59003 parched (heatwave).
+# BuffOverrides.storm: "59002"
+# BuffOverrides.blizzard: ""
+# BuffOverrides.heatwave: "59003, 59001"

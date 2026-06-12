@@ -1,0 +1,14 @@
+# Ships with the weather module. Module buffs use the 59001-59099 id range;
+# if a world already defines this id on disk, the engine keeps the disk copy
+# and skips ours (logged at startup). Applied by the weather-heatwave mutator
+# every round the weather holds; short triggercount means it fades a couple of
+# rounds after the player finds shade. Deliberately gentle (engine buff 33
+# "Thirsty" hits -20 across five stats; this is a mild sluggishness).
+# Script-free.
+buffid: 59003
+name: Weather Parched
+description: The oppressive heat leaves you sluggish and dry-mouthed.
+triggerrate: 1 round
+triggercount: 2
+statmods:
+  speed: -5

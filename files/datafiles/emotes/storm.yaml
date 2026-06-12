@@ -6,6 +6,16 @@ outdoor:
     - "The wind rises to a shriek, driving the rain sideways."
   forest:
     - "Wind tears at the branches; the whole canopy roars."
+  city:
+    - "Lightning glares white across a hundred rain-lashed rooftops."
+    - "Somewhere down the street a loose shutter bangs with every gust."
+  mountains:
+    - "Thunder slams into the peaks and rolls back doubled from the ridgelines."
+    - "Across the valley, lightning stalks the far ridge, leaping from crag to crag."
+  shore:
+    - "The storm surf booms against the headland; the wind is thick with salt."
+  water:
+    - "The wind rips the crests from the waves and hurls them as stinging spume."
 indoor:
   default:
     - "Rain hammers against the walls and shutters."

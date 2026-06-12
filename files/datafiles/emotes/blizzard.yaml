@@ -3,6 +3,8 @@ outdoor:
   default:
     - "The blizzard howls, erasing the world beyond a few paces."
     - "Wind-driven ice crystals sting every inch of exposed skin."
+  snow:
+    - "The blizzard scours the snowfield, carving the drifts into knife-edged waves."
 indoor:
   default:
     - "The blizzard screams past outside; drafts knife through every crack."

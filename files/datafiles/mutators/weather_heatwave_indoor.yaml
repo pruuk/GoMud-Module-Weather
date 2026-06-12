@@ -1,0 +1,8 @@
+# Indoor variant (M4 per-room refinement): applied to indoor rooms INSTEAD of
+# the outdoor spec — sheltered prose, no light penalty, no buffs.
+mutatorid: weather-heatwave-indoor
+descriptionmodifier:
+  behavior: append
+  text: Sweat gathers even at rest; the sluggish air traps the day's heat against the skin.
+  colorpattern: embers
+decayrate: 6 hours

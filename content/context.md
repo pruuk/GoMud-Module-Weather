@@ -42,22 +42,56 @@ dependency is `gopkg.in/yaml.v2`, which the GoMud engine itself uses.
 - **arch_test.go**: purity guardrail — fails if any file imports a
   `GoMudEngine/GoMud/internal` path.
 - **moduledata_test.go**: validates the SHIPPED YAML files under
-  `files/datafiles/`. For emote tables: parseable, `filename == weather+".yaml"`,
-  at least one outdoor-default and one indoor-default line. For mutator specs:
-  parseable, `mutatorid` is **`weather-` or `season-`** namespaced (both
-  namespaces validated under the same rules), filename matches
-  `fileNameFor(mutatorid)` (mirrors `util.ConvertForFilename`), `respawnrate`
-  forbidden (would fight the orchestrator), `decayintoid` forbidden (upstream
-  `MutatorList.Remove` resets `SpawnedRound` and runs `Update` whose decay
-  branch has no liveness guard — the decay target is instantly resurrected),
-  `decayrate` required (self-heal safety net). A count assertion requires at
-  least **14** shipped mutator specs (8 weather + 6 season) so a sync/copy
-  mistake is loud. For emote tables it also validates `seasonal:` variant keys
-  (each must be a season of a shipped track and carry at least one line), and a
-  separate check (`TestShippedSeasonalAmbience`) loads `emotes/seasons/`,
-  asserts the six (track, season) ambience tables are present with outdoor +
-  indoor default lines, and that each file obeys the `<track>_<season>.yaml`
-  filename rule.
+  `files/datafiles/`. Helpers: `fileNameFor` mirrors the engine's
+  `util.ConvertForFilename` **byte-exactly** (lowercase, drop `'`, keep
+  `[a-z0-9]`, everything else → `_`; byte-level, so names must stay ASCII) —
+  used for both mutator and buff filename checks; `knownBiomes()` is the
+  canonical biome-key set — the keys of `sim.DefaultClimate()` plus
+  `"default"` — and `checkBiomeKeys` fails any emote-table biome key outside
+  it (a key no room ever reports is unreachable prose) or with zero lines.
+  - **Emote tables** (`TestShippedEmoteTables`): parseable,
+    `filename == weather+".yaml"`, at least one outdoor-default and one
+    indoor-default line, every biome key (base sections AND inside `seasonal:`
+    blocks) validated via `checkBiomeKeys`, and `seasonal:` variant keys must
+    each be a season of a shipped track and carry at least one line. A separate
+    check (`TestShippedSeasonalAmbience`) loads `emotes/seasons/`, asserts the
+    six (track, season) ambience tables are present with outdoor + indoor
+    default lines (biome keys validated too), and that each file obeys the
+    `<track>_<season>.yaml` filename rule.
+  - **Mutator specs** (`TestShippedMutatorSpecs`): parseable, `mutatorid` is
+    **`weather-` or `season-`** namespaced (both namespaces validated under the
+    same rules), filename matches `fileNameFor(mutatorid)`, `respawnrate`
+    forbidden (would fight the orchestrator), `decayintoid` forbidden (upstream
+    `MutatorList.Remove` resets `SpawnedRound` and runs `Update` whose decay
+    branch has no liveness guard — the decay target is instantly resurrected),
+    `decayrate` required (self-heal safety net — it is also what lazily heals
+    stale per-room mutators). **Indoor-variant rules (M4)**: every outdoor
+    `weather-<type>` must have a `weather-<type>-indoor` twin (pairing
+    completeness — a 9th type can't ship half-finished), and indoor variants
+    are sheltered by construction: `lightmod`, `playerbuffids`, `mobbuffids`,
+    and `alertmodifier` are all forbidden on them. A **bidirectional type-list
+    drift guard** requires the shipped outdoor `weather-<type>` id set to equal
+    `sim.KnownWeatherTypes` minus `clear` — shipped-but-unlisted and
+    listed-but-unshipped both fail (the list is what `BuffOverrides.<type>`
+    config enumeration keys off). A count assertion requires at least **22**
+    shipped mutator specs (8 weather + 8 indoor + 6 season) so a sync/copy
+    mistake is loud.
+  - **Buff specs** (`TestShippedBuffSpecs`, M4): validates
+    `files/datafiles/buffs/` against what the engine's plugin buff loader
+    (`internal/buffs/plugin.go`) will accept — parseable under
+    `yaml.UnmarshalStrict` against the full engine `BuffSpec` schema (typos in
+    field names fail), ids inside the module's documented **59001–59099**
+    range with no duplicates, filename exactly the engine's computed
+    `<BuffId>-<ConvertForFilename(Name)>.yaml` (via `fileNameFor`; the loader
+    rejects any other name), a player-visible description, `triggerrate` set
+    and `triggercount` in 1..5 (the mutator re-applies every round the weather
+    holds, so a short count means the buff fades shortly after shelter), and
+    the **gentleness policy**: every statmod must be in [-10, 0] — a small
+    penalty or zero; no damage, no scripts, no bonuses (a positive mod is
+    rejected as a design change needing explicit review). A **cross-check** then walks every shipped
+    mutator spec: each `playerbuffids` entry must be one of the shipped buffs
+    (no borrowing engine ids like 31/33, which vary by world and are harsher
+    than weather warrants). At least 3 buff specs must ship.
 - **doc.go**: package-level comment.
 
 ### Key Types

@@ -6,6 +6,19 @@ outdoor:
     - "Puddles widen and merge underfoot."
   forest:
     - "Rain drips from leaf to leaf, a thousand small drumbeats."
+  city:
+    - "Rain sheets from the slate roofs and overwhelms the gutters below."
+    - "Cartwheels hiss past on the wet cobblestones, throwing fans of spray."
+  shore:
+    - "Beneath the steady rain, the surf keeps its slower, booming time."
+  water:
+    - "Silver patches of heavier rain drift across the swells."
+  farmland:
+    - "The smell of wet earth rises rich from the rain-soaked furrows."
+  road:
+    - "Wagon ruts brim with brown water; the road is churning to mud."
+  swamp:
+    - "Rain dimples the stagnant pools and sets the cattails nodding."
 indoor:
   default:
     - "Rain drums on the roof overhead."

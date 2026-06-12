@@ -53,6 +53,9 @@ func (m *weatherModule) cmdWeather(rest string, user *users.UserRecord, room *ro
 		m.printGraphForZone(user, zone)
 	case "rebuild":
 		m.rebuildGraph()
+		// Single-publish rule: see publishSnapshot. lastAdminAction is left
+		// alone — it reports admin-PAGE actions.
+		m.publishSnapshot()
 		if m.graph == nil {
 			sendLine(user, "Weather: graph rebuild failed (see server log).")
 			return true, nil
@@ -156,8 +159,11 @@ func (m *weatherModule) cmdSpawn(user *users.UserRecord, parts []string) {
 		return
 	}
 	m.state = next
-	engine.Reconcile(m.state.Weather)
+	m.applyWeather()
 	m.persistState()
+	// Single-publish rule: see publishSnapshot. lastAdminAction is left alone —
+	// it reports admin-PAGE actions.
+	m.publishSnapshot()
 	f := m.state.Fronts[len(m.state.Fronts)-1]
 	sendLine(user, fmt.Sprintf("Spawned front #%d: %s @ %s, intensity %.2f.", f.Id, f.Type, f.Zone, f.Intensity))
 }
@@ -180,8 +186,11 @@ func (m *weatherModule) cmdClear(user *users.UserRecord, parts []string) {
 	before := len(m.state.Fronts)
 	next, diff := sim.ClearZones(m.state, m.graph, m.simCfg, zones, sim.Clock{Round: engine.CurrentRound()})
 	m.state = next
-	engine.Reconcile(m.state.Weather)
+	m.applyWeather()
 	m.persistState()
+	// Single-publish rule: see publishSnapshot. lastAdminAction is left alone —
+	// it reports admin-PAGE actions.
+	m.publishSnapshot()
 	sendLine(user, fmt.Sprintf("Cleared %d front(s); %d zone change(s).", before-len(m.state.Fronts), len(diff.Changes)))
 }
 
